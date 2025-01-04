@@ -26,6 +26,7 @@ namespace pocketmine\command;
 use pocketmine\command\defaults\BanCommand;
 use pocketmine\command\defaults\BanIpCommand;
 use pocketmine\command\defaults\BanListCommand;
+use pocketmine\command\defaults\ClearChatCommand;
 use pocketmine\command\defaults\ClearCommand;
 use pocketmine\command\defaults\DefaultGamemodeCommand;
 use pocketmine\command\defaults\DeopCommand;
@@ -95,6 +96,7 @@ class SimpleCommandMap implements CommandMap{
 	private function setDefaultCommands() : void{
 		$this->registerAll("pocketmine", [
 			new BanCommand(),
+			new ClearChatCommand(),
 			new BanIpCommand(),
 			new BanListCommand(),
 			new ClearCommand(),
