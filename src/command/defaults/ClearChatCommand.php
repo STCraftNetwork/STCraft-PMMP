@@ -47,11 +47,8 @@ class ClearChatCommand extends VanillaCommand
             return false;
         }
 
-        foreach ($sender->getServer()->getOnlinePlayers() as $player) {
-            for ($i = 0; $i < 100; $i++) {
-                $player->sendMessage("");
-            }
-        }
+        $clearMessage = str_repeat("\n", 100);
+        $sender->getServer()->broadcastMessage($clearMessage);
 
         Command::broadcastCommandMessage($sender, "§aThe chat has been successfully cleared for all players.");
 
