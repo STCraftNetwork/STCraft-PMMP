@@ -1629,50 +1629,56 @@ class Player extends Human implements CommandSender, ChunkListener, IPlayer{
 		return true;
 	}
 
-	/**
-	 * @param Item[] $extraReturnedItems
-	 */
-	private function returnItemsFromAction(Item $oldHeldItem, Item $newHeldItem, array $extraReturnedItems) : void{
+	private function returnItemsFromAction(Item $oldHeldItem, Item $newHeldItem, array $extraReturnedItems): void {
 		$heldItemChanged = false;
-
-		if(!$newHeldItem->equalsExact($oldHeldItem) && $oldHeldItem->equalsExact($this->inventory->getItemInHand())){
-			//determine if the item was changed in some meaningful way, or just damaged/changed count
-			//if it was really changed we always need to set it, whether we have finite resources or not
+		$inventory = $this->inventory;
+		$currentHandItem = $inventory->getItemInHand();
+	
+		if (!$newHeldItem->equalsExact($oldHeldItem) && $oldHeldItem->equalsExact($currentHandItem)) {
+			// Clone and modify count and damage to check if the change is meaningful
 			$newReplica = clone $oldHeldItem;
 			$newReplica->setCount($newHeldItem->getCount());
-			if($newReplica instanceof Durable && $newHeldItem instanceof Durable){
+	
+			if ($newReplica instanceof Durable && $newHeldItem instanceof Durable) {
 				$newReplica->setDamage($newHeldItem->getDamage());
 			}
-			$damagedOrDeducted = $newReplica->equalsExact($newHeldItem);
-
-			if(!$damagedOrDeducted || $this->hasFiniteResources()){
-				if($newHeldItem instanceof Durable && $newHeldItem->isBroken()){
+	
+			if (!$newReplica->equalsExact($newHeldItem) || $this->hasFiniteResources()) {
+				if ($newHeldItem instanceof Durable && $newHeldItem->isBroken()) {
 					$this->broadcastSound(new ItemBreakSound());
 				}
-				$this->inventory->setItemInHand($newHeldItem);
+				$inventory->setItemInHand($newHeldItem);
 				$heldItemChanged = true;
 			}
 		}
-
-		if(!$heldItemChanged){
+	
+		if (!$heldItemChanged) {
 			$newHeldItem = $oldHeldItem;
 		}
-
-		if($heldItemChanged && count($extraReturnedItems) > 0 && $newHeldItem->isNull()){
-			$this->inventory->setItemInHand(array_shift($extraReturnedItems));
+	
+		if ($heldItemChanged && count($extraReturnedItems) > 0 && $newHeldItem->isNull()) {
+			$inventory->setItemInHand(array_shift($extraReturnedItems));
 		}
-		foreach($this->inventory->addItem(...$extraReturnedItems) as $drop){
-			//TODO: we can't generate a transaction for this since the items aren't coming from an inventory :(
-			$ev = new PlayerDropItemEvent($this, $drop);
-			if($this->isSpectator()){
-				$ev->cancel();
-			}
-			$ev->call();
-			if(!$ev->isCancelled()){
-				$this->dropItem($drop);
-			}
+	
+		foreach ($inventory->addItem(...$extraReturnedItems) as $drop) {
+			$this->handleDroppedItem($drop);
 		}
 	}
+	
+	private function handleDroppedItem(Item $drop): void {
+		$event = new PlayerDropItemEvent($this, $drop);
+		
+		if ($this->isSpectator()) {
+			$event->cancel();
+		}
+		
+		$event->call();
+		
+		if (!$event->isCancelled()) {
+			$this->dropItem($drop);
+		}
+	}
+	
 
 	/**
 	 * Activates the item in hand, for example throwing a projectile.
