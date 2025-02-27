@@ -2,122 +2,127 @@
 
 namespace pocketmine\pathfinding;
 
-use pocketmine\block\VanillaBlocks;
-use pocketmine\math\Vector3;
-use pocketmine\scheduler\AsyncTask;
-use pocketmine\Server;
-use pocketmine\world\Position;
-use SplPriorityQueue;
+class Pathfinder {
+    private $openList = [];
+    private $closedList = [];
+    private $grid = [];
+    private $startNode;
+    private $endNode;
 
-class Pathfinder extends AsyncTask {
-
-    private $worldname;
-    private $start;
-    private $end;
-    private $openList;
-    private $closedList;
-
-    public function __construct(string $worldname, Position $start, Position $end) {
-        $this->worldname = $worldname;
-        $this->start = $start;
-        $this->end = $end;
-        $this->openList = new SplPriorityQueue();
-        $this->closedList = [];
+    public function __construct($grid) {
+        $this->grid = $grid;
     }
 
-    public function onRun(): void {
-        $startNode = new Node($this->start->getX(), $this->start->getY(), $this->start->getZ());
-        $endNode = new Node($this->end->getX(), $this->end->getY(), $this->end->getZ());
+    public function findPath($startX, $startY, $startZ, $endX, $endY, $endZ): array {
+        $this->startNode = new Node($startX, $startY, $startZ);
+        $this->endNode = new Node($endX, $endY, $endZ);
+        array_push($this->openList, $this->startNode);
 
-        $this->openList->insert($startNode, -$startNode->fCost());
-
-        while (!$this->openList->isEmpty()) {
-            $currentNode = $this->openList->extract();
-            if ($currentNode->equals($endNode)) {
-                $this->setResult($this->retracePath($startNode, $currentNode));
-                return;
+        while (count($this->openList) > 0) {
+            $currentNode = $this->getLowestFNode();
+            if ($this->isEndNode($currentNode)) {
+                return $this->retracePath($currentNode);
             }
 
-            $this->closedList[$currentNode->hashCode()] = $currentNode;
+            $this->removeFromOpenList($currentNode);
+            array_push($this->closedList, $currentNode);
 
-            foreach ($this->getNeighbors($currentNode) as $neighbor) {
-                if (isset($this->closedList[$neighbor->hashCode()]) || !$this->isWalkable($neighbor)) {
+            $neighbors = $this->getNeighbors($currentNode);
+            foreach ($neighbors as $neighbor) {
+                if ($this->isInClosedList($neighbor) || !$this->isWalkable($neighbor)) {
                     continue;
                 }
 
-                $newMovementCostToNeighbor = $currentNode->gCost + $this->getDistance($currentNode, $neighbor);
-                if ($newMovementCostToNeighbor < $neighbor->gCost || !isset($this->openList[$neighbor->hashCode()])) {
-                    $neighbor->gCost = $newMovementCostToNeighbor;
-                    $neighbor->hCost = $this->getDistance($neighbor, $endNode);
+                $newG = $currentNode->g + $this->getDistance($currentNode, $neighbor);
+                if ($newG < $neighbor->g || !$this->isInOpenList($neighbor)) {
+                    $neighbor->g = $newG;
+                    $neighbor->h = $this->getDistance($neighbor, $this->endNode);
+                    $neighbor->f = $neighbor->g + $neighbor->h;
                     $neighbor->parent = $currentNode;
 
-                    if (!isset($this->openList[$neighbor->hashCode()])) {
-                        $this->openList->insert($neighbor, -$neighbor->fCost());
+                    if (!$this->isInOpenList($neighbor)) {
+                        array_push($this->openList, $neighbor);
                     }
                 }
             }
         }
 
-        $this->setResult(null); // No path found
+        return [];
     }
 
-    private function getNeighbors(Node $node): array {
+    private function getLowestFNode(): mixed {
+		if (empty($this->openList)) {
+			return null; 
+		}
+	
+		$lowestFNode = $this->openList[0];
+	
+		foreach ($this->openList as $node) {
+			if (is_object($node) && $node->f < $lowestFNode->f) {
+				$lowestFNode = $node;
+			}
+		}
+	
+		return $lowestFNode;
+	}
+
+    private function isEndNode($node): bool {
+        return $node->x === $this->endNode->x && $node->y === $this->endNode->y && $node->z === $this->endNode->z;
+    }
+
+    private function removeFromOpenList($node): void {
+        $index = array_search($node, $this->openList);
+        if ($index !== false) {
+            array_splice($this->openList, $index, 1);
+        }
+    }
+
+    private function isInClosedList($node): bool {
+        return in_array($node, $this->closedList);
+    }
+
+    private function isInOpenList($node): bool {
+        return in_array($node, $this->openList);
+    }
+
+    private function isWalkable($node): bool {
+        return isset($this->grid[$node->x][$node->y][$node->z]) && $this->grid[$node->x][$node->y][$node->z] === 0;
+    }
+
+    private function getNeighbors($node): array {
         $neighbors = [];
         $directions = [
-            new Vector3(1, 0, 0), new Vector3(-1, 0, 0),
-            new Vector3(0, 0, 1), new Vector3(0, 0, -1),
-            new Vector3(1, 0, 1), new Vector3(-1, 0, -1),
-            new Vector3(1, 0, -1), new Vector3(-1, 0, 1),
-            new Vector3(0, 1, 0), new Vector3(0, -1, 0),
+            [1, 0, 0], [-1, 0, 0],
+            [0, 1, 0], [0, -1, 0],
+            [0, 0, 1], [0, 0, -1],
         ];
 
-        foreach ($directions as $direction) {
-            $neighborPos = $node->add($direction->x, $direction->y, $direction->z);
-            $neighbors[] = new Node($neighborPos->getX(), $neighborPos->getY(), $neighborPos->getZ());
+        foreach ($directions as $dir) {
+            $x = $node->x + $dir[0];
+            $y = $node->y + $dir[1];
+            $z = $node->z + $dir[2];
+            if (isset($this->grid[$x][$y][$z])) {
+                $neighbors[] = new Node($x, $y, $z);
+            }
         }
 
         return $neighbors;
     }
 
-    private function isWalkable(Node $node): bool {
-        // Implement the logic to check if a node is walkable.
-        // This method should be overridden to check block types, etc.
-        return true;
+    private function getDistance($nodeA, $nodeB): float {
+        $dx = abs($nodeA->x - $nodeB->x);
+        $dy = abs($nodeA->y - $nodeB->y);
+        $dz = abs($nodeA->z - $nodeB->z);
+        return $dx + $dy + $dz;
     }
 
-    private function getDistance(Node $nodeA, Node $nodeB): float {
-        $dstX = abs($nodeA->x - $nodeB->x);
-        $dstY = abs($nodeA->y - $nodeB->y);
-        $dstZ = abs($nodeA->z - $nodeB->z);
-
-        if ($dstX > $dstZ) {
-            return 14 * $dstZ + 10 * ($dstX - $dstZ) + 10 * $dstY;
-        }
-        return 14 * $dstX + 10 * ($dstZ - $dstX) + 10 * $dstY;
-    }
-
-    private function retracePath(Node $startNode, Node $endNode): array {
+    private function retracePath($endNode): array {
         $path = [];
         $currentNode = $endNode;
-
-        while (!$currentNode->equals($startNode)) {
-            $path[] = $currentNode;
+        while ($currentNode !== null) {
+            array_unshift($path, [$currentNode->x, $currentNode->y, $currentNode->z]);
             $currentNode = $currentNode->parent;
         }
-
-        return array_reverse($path);
-    }
-
-    public function onCompletion(): void {
-        $result = $this->getResult();
-		$server = Server::getInstance();
-        if ($result !== null) {
-            $level = $server->getWorldManager()->getWorldByName($this->worldname);
-            foreach ($result as $node) {
-                $level->setBlock(new Vector3($node->x, $node->y, $node->z), VanillaBlocks::GLOWSTONE());
-            }
-        } else {
-            $server->getLogger()->info("No path found!");
-        }
+        return $path;
     }
 }

@@ -2,22 +2,22 @@
 
 namespace pocketmine\pathfinding;
 
-use pocketmine\math\Vector3;
+class Node {
+    public $x;
+    public $y;
+    public $z;
+    public $g;
+    public $h;
+    public $f;
+    public $parent;
 
-class Node extends Vector3 {
-    public $gCost = INF;
-    public $hCost = INF;
-    public $parent = null;
-
-    public function fCost() {
-        return $this->gCost + $this->hCost;
-    }
-
-    public function equals(Vector3 $node): bool {
-        return $this->x === $node->x && $this->y === $node->y && $this->z === $node->z;
-    }
-
-    public function hashCode() {
-        return $this->x . ',' . $this->y . ',' . $this->z;
+    public function __construct($x, $y, $z, $g = 0, $h = 0, $parent = null) {
+        $this->x = $x;
+        $this->y = $y;
+        $this->z = $z;
+        $this->g = $g;
+        $this->h = $h;
+        $this->f = $g + $h;
+        $this->parent = $parent;
     }
 }
