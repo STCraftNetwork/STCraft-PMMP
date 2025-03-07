@@ -1,0 +1,37 @@
+name: Upload PocketMine-MP to Pterodactyl Servers
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  upload-to-pterodactyl:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Download release asset
+      id: download
+      uses: actions/download-artifact@v2
+      with:
+        name: PocketMine-MP.phar
+        path: ./PocketMine-MP.phar
+
+    - name: Upload to Pterodactyl
+      uses: Parkervcp/pterodactyl-upload-action@v1
+      with:
+        panel_url: ${{ secrets.PTERODACTYL_PANEL_URL }}
+        api_key: ${{ secrets.PTERODACTYL_API_KEY }}
+        server_ids: ${{ secrets.PTERODACTYL_SERVER_IDS }}
+        file_path: ./PocketMine-MP.phar
+        destination_path: /home/container/PocketMine-MP.phar
+
+    - name: Restart Pterodactyl Servers
+      uses: Parkervcp/pterodactyl-action@v1
+      with:
+        panel_url: ${{ secrets.PTERODACTYL_PANEL_URL }}
+        api_key: ${{ secrets.PTERODACTYL_API_KEY }}
+        server_ids: ${{ secrets.PTERODACTYL_SERVER_IDS }}
+        action: restart
