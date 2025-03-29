@@ -17,26 +17,28 @@
  * @link http://www.pocketmine.net/
  *
  *
- */
+*/
 
 declare(strict_types=1);
 
-namespace pocketmine\form;
+namespace pocketmine\form\PMForm\element;
 
-use pocketmine\player\Player;
+use function assert;
 
 /**
- * Form implementations must implement this interface to be able to utilize the Player form-sending mechanism.
- * There is no restriction on custom implementations other than that they must implement this.
+ * Element which displays some text on a form.
  */
-interface Form extends \JsonSerializable{
+class Label extends CustomFormElement{
 
-	/**
-	 * Handles a form response from a player.
-	 *
-	 * @param mixed $data
-	 *
-	 * @throws FormValidationException if the data could not be processed
-	 */
-	public function handleResponse(Player $player, $data) : void;
+	public function getType() : string{
+		return "label";
+	}
+
+	public function validateValue($value) : void{
+		assert($value === null);
+	}
+
+	protected function serializeElementData() : array{
+		return [];
+	}
 }

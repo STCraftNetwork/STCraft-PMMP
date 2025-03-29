@@ -1,189 +1,194 @@
 <?php
 
-/*
- *
- *  ____            _        _   __  __ _                  __  __ ____
- * |  _ \ ___   ___| | _____| |_|  \/  (_)_ __   ___      |  \/  |  _ \
- * | |_) / _ \ / __| |/ / _ \ __| |\/| | | '_ \ / _ \_____| |\/| | |_) |
- * |  __/ (_) | (__|   <  __/ |_| |  | | | | | |  __/_____| |  | |  __/
- * |_|   \___/ \___|_|\_\___|\__|_|  |_|_|_| |_|\___|     |_|  |_|_|
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * @author PocketMine Team
- * @link http://www.pocketmine.net/
- *
- *
- */
-
 declare(strict_types=1);
-
-/**
- * Task scheduling related classes
- */
 
 namespace pocketmine\scheduler;
 
 use pocketmine\utils\ObjectSet;
 use pocketmine\utils\ReversePriorityQueue;
+use pocketmine\player\Player;
+use pocketmine\utils\TextFormat;
+use pocketmine\utils\UUID;
 
-class TaskScheduler{
-	private bool $enabled = true;
+class TaskScheduler {
+    private bool $enabled = true;
 
-	/** @phpstan-var ReversePriorityQueue<int, TaskHandler<covariant Task>> */
-	protected ReversePriorityQueue $queue;
+    /** @phpstan-var ReversePriorityQueue<int, TaskHandler> */
+    protected ReversePriorityQueue $queue;
 
-	/**
-	 * @var ObjectSet|TaskHandler[]
-	 * @phpstan-var ObjectSet<TaskHandler<covariant Task>>
-	 */
-	protected ObjectSet $tasks;
+    /**
+     * @var ObjectSet|TaskHandler[]
+     * @phpstan-var ObjectSet<TaskHandler>
+     */
+    protected ObjectSet $tasks;
 
-	protected int $currentTick = 0;
+    protected int $currentTick = 0;
 
-	public function __construct(
-		private ?string $owner = null
-	){
-		$this->queue = new ReversePriorityQueue();
-		$this->tasks = new ObjectSet();
-	}
+    /** @var array<string, TaskHandler> */
+    private array $playerTasks = [];
 
-	/**
-	 * @phpstan-template TTask of Task
-	 * @phpstan-param TTask $task
-	 *
-	 * @phpstan-return TaskHandler<TTask>
-	 */
-	public function scheduleTask(Task $task) : TaskHandler{
-		return $this->addTask($task, -1, -1);
-	}
+    public function __construct(private ?string $owner = null) {
+        $this->queue = new ReversePriorityQueue();
+        $this->tasks = new ObjectSet();
+    }
 
-	/**
-	 * @phpstan-template TTask of Task
-	 * @phpstan-param TTask $task
-	 *
-	 * @phpstan-return TaskHandler<TTask>
-	 */
-	public function scheduleDelayedTask(Task $task, int $delay) : TaskHandler{
-		return $this->addTask($task, $delay, -1);
-	}
+    /**
+     * Schedule a new task.
+     */
+    public function scheduleTask(Task $task): TaskHandler {
+        return $this->addTask($task, -1, -1);
+    }
 
-	/**
-	 * @phpstan-template TTask of Task
-	 * @phpstan-param TTask $task
-	 *
-	 * @phpstan-return TaskHandler<TTask>
-	 */
-	public function scheduleRepeatingTask(Task $task, int $period) : TaskHandler{
-		return $this->addTask($task, -1, $period);
-	}
+    /**
+     * Schedule a task with a delay.
+     */
+    public function scheduleDelayedTask(Task $task, int $delay): TaskHandler {
+        return $this->addTask($task, $delay, -1);
+    }
 
-	/**
-	 * @phpstan-template TTask of Task
-	 * @phpstan-param TTask $task
-	 *
-	 * @phpstan-return TaskHandler<TTask>
-	 */
-	public function scheduleDelayedRepeatingTask(Task $task, int $delay, int $period) : TaskHandler{
-		return $this->addTask($task, $delay, $period);
-	}
+    /**
+     * Schedule a repeating task.
+     */
+    public function scheduleRepeatingTask(Task $task, int $period): TaskHandler {
+        return $this->addTask($task, -1, $period);
+    }
 
-	public function cancelAllTasks() : void{
-		foreach($this->tasks as $id => $task){
-			$task->cancel();
-		}
-		$this->tasks->clear();
-		while(!$this->queue->isEmpty()){
-			$this->queue->extract();
-		}
-	}
+    /**
+     * Schedule a task with a delay and a repeating period.
+     */
+    public function scheduleDelayedRepeatingTask(Task $task, int $delay, int $period): TaskHandler {
+        return $this->addTask($task, $delay, $period);
+    }
 
-	/**
-	 * @phpstan-param TaskHandler<covariant Task> $task
-	 */
-	public function isQueued(TaskHandler $task) : bool{
-		return $this->tasks->contains($task);
-	}
+    /**
+     * Cancel all scheduled tasks.
+     */
+    public function cancelAllTasks(): void {
+        foreach ($this->tasks as $task) {
+            $task->cancel();
+        }
+        $this->tasks->clear();
+    }
 
-	/**
-	 * @phpstan-template TTask of Task
-	 * @phpstan-param TTask $task
-	 *
-	 * @phpstan-return TaskHandler<TTask>
-	 */
-	private function addTask(Task $task, int $delay, int $period) : TaskHandler{
-		if(!$this->enabled){
-			throw new \LogicException("Tried to schedule task to disabled scheduler");
-		}
+    /**
+     * Check if a task is in the queue.
+     */
+    public function isQueued(TaskHandler $task): bool {
+        return $this->tasks->contains($task);
+    }
 
-		if($delay <= 0){
-			$delay = -1;
-		}
+    /**
+     * Check if a task is scheduled for a specific player.
+     */
+    public function isScheduledFor(Player $player): bool {
+        return isset($this->playerTasks[$player->getUniqueId()->toString()]);
+    }
 
-		if($period <= -1){
-			$period = -1;
-		}elseif($period < 1){
-			$period = 1;
-		}
+    /**
+     * Schedule a task for a player and store the reference.
+     */
+    public function scheduleForPlayer(Player $player, Task $task, int $ticks = 20): TaskHandler {
+        $uniqueId = $player->getUniqueId()->toString();
 
-		return $this->handle(new TaskHandler($task, $delay, $period, $this->owner));
-	}
+        if ($this->isScheduledFor($player)) {
+            return $this->playerTasks[$uniqueId];
+        }
 
-	/**
-	 * @phpstan-template TTask of Task
-	 * @phpstan-param TaskHandler<TTask> $handler
-	 * @phpstan-return TaskHandler<TTask>
-	 */
-	private function handle(TaskHandler $handler) : TaskHandler{
-		if($handler->isDelayed()){
-			$nextRun = $this->currentTick + $handler->getDelay();
-		}else{
-			$nextRun = $this->currentTick;
-		}
+        $taskHandler = $this->scheduleRepeatingTask($task, $ticks);
+        $this->playerTasks[$uniqueId] = $taskHandler;
 
-		$handler->setNextRun($nextRun);
-		$this->tasks->add($handler);
-		$this->queue->insert($handler, $nextRun);
+        return $taskHandler;
+    }
 
-		return $handler;
-	}
+    /**
+     * Cancel all tasks associated with a specific player.
+     */
+    public function cancelForPlayer(Player $player): void {
+        $uniqueId = $player->getUniqueId()->toString();
+        
+        if (isset($this->playerTasks[$uniqueId])) {
+            $this->playerTasks[$uniqueId]->cancel();
+            unset($this->playerTasks[$uniqueId]);
+        }
+    }
 
-	public function shutdown() : void{
-		$this->enabled = false;
-		$this->cancelAllTasks();
-	}
+    /**
+     * Add a task to the scheduler.
+     */
+    private function addTask(Task $task, int $delay, int $period): TaskHandler {
+        if (!$this->enabled) {
+            throw new \LogicException("Tried to schedule task to disabled scheduler");
+        }
 
-	public function setEnabled(bool $enabled) : void{
-		$this->enabled = $enabled;
-	}
+        $delay = max($delay, -1);
+        $period = max($period, -1);
 
-	public function mainThreadHeartbeat(int $currentTick) : void{
-		if(!$this->enabled){
-			throw new \LogicException("Cannot run heartbeat on a disabled scheduler");
-		}
-		$this->currentTick = $currentTick;
-		while($this->isReady($this->currentTick)){
-			/** @phpstan-var TaskHandler<covariant Task> $task */
-			$task = $this->queue->extract();
-			if($task->isCancelled()){
-				$this->tasks->remove($task);
-				continue;
-			}
-			$task->run();
-			if(!$task->isCancelled() && $task->isRepeating()){
-				$task->setNextRun($this->currentTick + $task->getPeriod());
-				$this->queue->insert($task, $this->currentTick + $task->getPeriod());
-			}else{
-				$task->remove();
-				$this->tasks->remove($task);
-			}
-		}
-	}
+        return $this->handle(new TaskHandler($task, $delay, $period, $this->owner));
+    }
 
-	private function isReady(int $currentTick) : bool{
-		return !$this->queue->isEmpty() && $this->queue->current()->getNextRun() <= $currentTick;
-	}
+    /**
+     * Handle the scheduling of a task.
+     */
+    private function handle(TaskHandler $handler): TaskHandler {
+        $nextRun = $this->currentTick + max($handler->getDelay(), 0);
+        $handler->setNextRun($nextRun);
+        $this->tasks->add($handler);
+        $this->queue->insert($handler, $nextRun);
+
+        return $handler;
+    }
+
+    /**
+     * Shutdown the scheduler and cancel all tasks.
+     */
+    public function shutdown(): void {
+        $this->enabled = false;
+        $this->cancelAllTasks();
+    }
+
+    /**
+     * Enable or disable the scheduler.
+     */
+    public function setEnabled(bool $enabled): void {
+        $this->enabled = $enabled;
+    }
+
+    /**
+     * Process tasks in the main thread heartbeat.
+     */
+    public function mainThreadHeartbeat(int $currentTick): void {
+        if (!$this->enabled) {
+            throw new \LogicException("Cannot run heartbeat on a disabled scheduler");
+        }
+        
+        $this->currentTick = $currentTick;
+
+        while ($this->isReady($this->currentTick)) {
+            /** @var TaskHandler $task */
+            $task = $this->queue->extract();
+            
+            if ($task->isCancelled()) {
+                $this->tasks->remove($task);
+                continue;
+            }
+
+            $task->run();
+
+            if (!$task->isCancelled() && $task->isRepeating()) {
+                $nextRun = $this->currentTick + $task->getPeriod();
+                $task->setNextRun($nextRun);
+                $this->queue->insert($task, $nextRun);
+            } else {
+                $task->remove();
+                $this->tasks->remove($task);
+            }
+        }
+    }
+
+    /**
+     * Check if there are tasks ready to be executed.
+     */
+    private function isReady(int $currentTick): bool {
+        return !$this->queue->isEmpty() && $this->queue->current()->getNextRun() <= $currentTick;
+    }
 }
