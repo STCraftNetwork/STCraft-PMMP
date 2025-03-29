@@ -25,6 +25,7 @@ namespace pocketmine\permission;
 
 final class DefaultPermissionNames{
 	public const BROADCAST_ADMIN = "pocketmine.broadcast.admin";
+	public const COMMAND_CLEAR_CHAT = "stcraft.command.clearchat";
 	public const BROADCAST_USER = "pocketmine.broadcast.user";
 	public const COMMAND_BAN_IP = "pocketmine.command.ban.ip";
 	public const COMMAND_BAN_LIST = "pocketmine.command.ban.list";

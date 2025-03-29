@@ -33,6 +33,9 @@ final class VersionInfo{
 	public const NAME = "PocketMine-MP";
 	public const BASE_VERSION = "5.27.1";
 	public const IS_DEVELOPMENT_BUILD = true;
+	public const NAME = "PocketMine-MP";
+	public const BASE_VERSION = "5.25.1";
+	public const IS_DEVELOPMENT_BUILD = true;
 	public const BUILD_CHANNEL = "stable";
 
 	/**

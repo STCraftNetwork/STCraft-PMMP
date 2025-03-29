@@ -53,6 +53,7 @@ abstract class DefaultPermissions{
 		$everyoneRoot = self::registerPermission(new Permission(self::ROOT_USER, l10n::pocketmine_permission_group_user()), [$operatorRoot]);
 
 		self::registerPermission(new Permission(Names::BROADCAST_ADMIN, l10n::pocketmine_permission_broadcast_admin()), [$operatorRoot]);
+		self::registerPermission(new Permission(Names::COMMAND_CLEAR_CHAT, 'Clear Chat'), [$operatorRoot]);
 		self::registerPermission(new Permission(Names::BROADCAST_USER, l10n::pocketmine_permission_broadcast_user()), [$everyoneRoot]);
 		self::registerPermission(new Permission(Names::COMMAND_BAN_IP, l10n::pocketmine_permission_command_ban_ip()), [$operatorRoot]);
 		self::registerPermission(new Permission(Names::COMMAND_BAN_LIST, l10n::pocketmine_permission_command_ban_list()), [$operatorRoot]);
