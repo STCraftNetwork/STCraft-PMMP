@@ -193,7 +193,12 @@ class LoginPacketHandler extends PacketHandler{
 		}catch(JwtException $e){
 			throw PacketHandlingException::wrap($e);
 		}
-
+	
+		// Ensure GraphicsMode exists
+		if (!isset($clientDataClaims["GraphicsMode"])) {
+			$clientDataClaims["GraphicsMode"] = 1;
+		}
+	
 		$mapper = new \JsonMapper();
 		$mapper->bEnforceMapType = false; //TODO: we don't really need this as an array, but right now we don't have enough models
 		$mapper->bExceptionOnMissingData = true;
@@ -205,7 +210,7 @@ class LoginPacketHandler extends PacketHandler{
 			throw PacketHandlingException::wrap($e);
 		}
 		return $clientData;
-	}
+	}	
 
 	/**
 	 * TODO: This is separated for the purposes of allowing plugins (like Specter) to hack it and bypass authentication.
