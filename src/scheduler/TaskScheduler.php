@@ -68,7 +68,6 @@ class TaskScheduler {
             $task->cancel();
         }
         $this->tasks->clear();
-        $this->queue->clear();
     }
 
     /**
