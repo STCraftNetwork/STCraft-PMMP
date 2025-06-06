@@ -25,12 +25,13 @@ namespace pocketmine\form\FormAPI;
 
 use pocketmine\player\Player;
 use InvalidArgumentException;
+use pocketmine\form\Form as PMForm;
 
 /**
  * Form implementations must implement this interface to be able to utilize the Player form-sending mechanism.
  * There is no restriction on custom implementations other than that they must implement this.
  */
-interface Form extends \JsonSerializable
+interface Form extends PMForm
 {
     /**
      * @param callable(Player, mixed): void|null $callable
