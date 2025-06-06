@@ -787,7 +787,9 @@ final class BlockTypeIds{
 	public const RESIN_CLUMP = 10757;
 	public const CHISELED_RESIN_BRICKS = 10758;
 
-	public const FIRST_UNUSED_BLOCK_ID = 10759;
+	public const FIRST_UNUSED_BLOCK_ID = 10760;
+
+	public const STRUCTURE_VOID = 10759;
 
 	private static int $nextDynamicId = self::FIRST_UNUSED_BLOCK_ID;
 
