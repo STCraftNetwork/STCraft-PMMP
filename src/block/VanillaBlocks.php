@@ -880,7 +880,6 @@ final class VanillaBlocks
 		self::register("banner", fn(BID $id) => new FloorBanner($id, "Banner", $bannerBreakInfo), TileBanner::class);
 		self::register("wall_banner", fn(BID $id) => new WallBanner($id, "Wall Banner", $bannerBreakInfo), TileBanner::class);
 		self::register("barrel", fn(BID $id) => new Barrel($id, "Barrel", new Info(BreakInfo::axe(2.5))), TileBarrel::class);
-		self::register("barrel", fn(BID $id) => new Barrel($id, "Barrel", new Info(BreakInfo::axe(2.5))), TileBarrel::class);
 		self::register("barrier", fn(BID $id) => new Transparent($id, "Barrier", new Info(BreakInfo::indestructible())));
 		self::register("structure_void", fn(BID $id) => new Transparent($id, "Structure Void",	new Info(BreakInfo::indestructible())));
 
