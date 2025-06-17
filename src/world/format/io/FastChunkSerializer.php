@@ -1,24 +1,5 @@
 <?php
 
-/*
- *
- *  ____            _        _   __  __ _                  __  __ ____
- * |  _ \ ___   ___| | _____| |_|  \/  (_)_ __   ___      |  \/  |  _ \
- * | |_) / _ \ / __| |/ / _ \ __| |\/| | | '_ \ / _ \_____| |\/| | |_) |
- * |  __/ (_) | (__|   <  __/ |_| |  | | | | | |  __/_____| |  | |  __/
- * |_|   \___/ \___|_|\_\___|\__|_|  |_|_|_| |_|\___|     |_|  |_|_|
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * @author PocketMine Team
- * @link http://www.pocketmine.net/
- *
- *
- */
-
 declare(strict_types=1);
 
 namespace pocketmine\world\format\io;
@@ -28,98 +9,106 @@ use pocketmine\utils\BinaryStream;
 use pocketmine\world\format\Chunk;
 use pocketmine\world\format\PalettedBlockArray;
 use pocketmine\world\format\SubChunk;
-use function array_values;
-use function count;
+
 use function pack;
-use function strlen;
 use function unpack;
 
 /**
- * This class provides a serializer used for transmitting chunks between threads.
- * The serialization format **is not intended for permanent storage** and may change without warning.
+ * Fast chunk serializer for transmitting chunks between threads.
+ * NOT intended for permanent storage.
  */
 final class FastChunkSerializer{
-	private const FLAG_POPULATED = 1 << 1;
+    private const FLAG_POPULATED = 1 << 1;
 
-	private function __construct(){
-		//NOOP
-	}
+    private function __construct(){
+        // Static utility class — do not instantiate
+    }
 
-	private static function serializePalettedArray(BinaryStream $stream, PalettedBlockArray $array) : void{
-		$wordArray = $array->getWordArray();
-		$palette = $array->getPalette();
+    private static function serializePalettedArray(BinaryStream $stream, PalettedBlockArray $array): void{
+        $bitsPerBlock = $array->getBitsPerBlock();
+        $wordArray = $array->getWordArray();
+        $palette = $array->getPalette();
 
-		$stream->putByte($array->getBitsPerBlock());
-		$stream->put($wordArray);
-		$serialPalette = pack("L*", ...$palette);
-		$stream->putInt(strlen($serialPalette));
-		$stream->put($serialPalette);
-	}
+        $stream->putByte($bitsPerBlock);
+        $stream->put($wordArray);
 
-	/**
-	 * Fast-serializes the chunk for passing between threads
-	 * TODO: tiles and entities
-	 */
-	public static function serializeTerrain(Chunk $chunk) : string{
-		$stream = new BinaryStream();
-		$stream->putByte(
-			($chunk->isPopulated() ? self::FLAG_POPULATED : 0)
-		);
+        // Efficiently pack palette as binary
+        $serialPalette = pack('L*', ...$palette);
+        $stream->putInt(strlen($serialPalette));
+        $stream->put($serialPalette);
+    }
 
-		//subchunks
-		$subChunks = $chunk->getSubChunks();
-		$count = count($subChunks);
-		$stream->putByte($count);
+    /**
+     * Serializes chunk terrain for thread transfer.
+     */
+    public static function serializeTerrain(Chunk $chunk): string{
+        $stream = new BinaryStream();
+        $flags = $chunk->isPopulated() ? self::FLAG_POPULATED : 0;
+        $stream->putByte($flags);
 
-		foreach($subChunks as $y => $subChunk){
-			$stream->putByte($y);
-			$stream->putInt($subChunk->getEmptyBlockId());
-			$layers = $subChunk->getBlockLayers();
-			$stream->putByte(count($layers));
-			foreach($layers as $blocks){
-				self::serializePalettedArray($stream, $blocks);
-			}
-			self::serializePalettedArray($stream, $subChunk->getBiomeArray());
+        $subChunks = $chunk->getSubChunks();
+        $count = \count($subChunks);
+        $stream->putByte($count);
 
-		}
+        foreach ($subChunks as $y => $subChunk) {
+            $stream->putByte($y);
+            $stream->putInt($subChunk->getEmptyBlockId());
 
-		return $stream->getBuffer();
-	}
+            $layers = $subChunk->getBlockLayers();
+            $layerCount = \count($layers);
+            $stream->putByte($layerCount);
 
-	private static function deserializePalettedArray(BinaryStream $stream) : PalettedBlockArray{
-		$bitsPerBlock = $stream->getByte();
-		$words = $stream->get(PalettedBlockArray::getExpectedWordArraySize($bitsPerBlock));
-		/** @var int[] $unpackedPalette */
-		$unpackedPalette = unpack("L*", $stream->get($stream->getInt())); //unpack() will never fail here
-		$palette = array_values($unpackedPalette);
+            foreach ($layers as $layer) {
+                self::serializePalettedArray($stream, $layer);
+            }
 
-		return PalettedBlockArray::fromData($bitsPerBlock, $words, $palette);
-	}
+            self::serializePalettedArray($stream, $subChunk->getBiomeArray());
+        }
 
-	/**
-	 * Deserializes a fast-serialized chunk
-	 */
-	public static function deserializeTerrain(string $data) : Chunk{
-		$stream = new BinaryStream($data);
+        return $stream->getBuffer();
+    }
 
-		$flags = $stream->getByte();
-		$terrainPopulated = (bool) ($flags & self::FLAG_POPULATED);
+    private static function deserializePalettedArray(BinaryStream $stream): PalettedBlockArray{
+        $bitsPerBlock = $stream->getByte();
+        $wordArraySize = PalettedBlockArray::getExpectedWordArraySize($bitsPerBlock);
+        $words = $stream->get($wordArraySize);
 
-		$subChunks = [];
+        $paletteSize = $stream->getInt();
+        $paletteData = $stream->get($paletteSize);
 
-		$count = $stream->getByte();
-		for($subCount = 0; $subCount < $count; ++$subCount){
-			$y = Binary::signByte($stream->getByte());
-			$airBlockId = $stream->getInt();
+        /** @var int[] $palette */
+        $palette = unpack('L*', $paletteData);
 
-			$layers = [];
-			for($i = 0, $layerCount = $stream->getByte(); $i < $layerCount; ++$i){
-				$layers[] = self::deserializePalettedArray($stream);
-			}
-			$biomeArray = self::deserializePalettedArray($stream);
-			$subChunks[$y] = new SubChunk($airBlockId, $layers, $biomeArray);
-		}
+        return PalettedBlockArray::fromData($bitsPerBlock, $words, $palette);
+    }
 
-		return new Chunk($subChunks, $terrainPopulated);
-	}
+    /**
+     * Deserializes terrain data into a chunk.
+     */
+    public static function deserializeTerrain(string $data): Chunk{
+        $stream = new BinaryStream($data);
+
+        $flags = $stream->getByte();
+        $terrainPopulated = ($flags & self::FLAG_POPULATED) !== 0;
+
+        $subChunkCount = $stream->getByte();
+        $subChunks = [];
+
+        for ($i = 0; $i < $subChunkCount; ++$i) {
+            $y = Binary::signByte($stream->getByte());
+            $airBlockId = $stream->getInt();
+
+            $layerCount = $stream->getByte();
+            $layers = [];
+            for ($j = 0; $j < $layerCount; ++$j) {
+                $layers[] = self::deserializePalettedArray($stream);
+            }
+
+            $biomeArray = self::deserializePalettedArray($stream);
+
+            $subChunks[$y] = new SubChunk($airBlockId, $layers, $biomeArray);
+        }
+
+        return new Chunk($subChunks, $terrainPopulated);
+    }
 }

@@ -1352,40 +1352,48 @@ class World implements ChunkManager{
 		}
 	}
 
-	private function orderLightPopulation(int $chunkX, int $chunkZ) : void{
-		$chunkHash = World::chunkHash($chunkX, $chunkZ);
-		$lightPopulatedState = $this->chunks[$chunkHash]->isLightPopulated();
-		if($lightPopulatedState === false){
-			$this->chunks[$chunkHash]->setLightPopulated(null);
-			$this->markTickingChunkForRecheck($chunkX, $chunkZ);
+	private function orderLightPopulation(int $chunkX, int $chunkZ): void {
+    $chunkHash = World::chunkHash($chunkX, $chunkZ);
+    $chunk = $this->chunks[$chunkHash] ?? null;
 
-			$this->workerPool->submitTask(new LightPopulationTask(
-				$this->chunks[$chunkHash],
-				function(array $blockLight, array $skyLight, array $heightMap) use ($chunkX, $chunkZ) : void{
-					/**
-					 * TODO: phpstan can't infer these types yet :(
-					 * @phpstan-var array<int, LightArray> $blockLight
-					 * @phpstan-var array<int, LightArray> $skyLight
-					 * @phpstan-var non-empty-list<int>    $heightMap
-					 */
-					if($this->unloaded || ($chunk = $this->getChunk($chunkX, $chunkZ)) === null || $chunk->isLightPopulated() === true){
-						return;
-					}
-					//TODO: calculated light information might not be valid if the terrain changed during light calculation
+    if ($chunk === null || $chunk->isLightPopulated() !== false) {
+        return;
+    }
 
-					$chunk->setHeightMapArray($heightMap);
-					foreach($blockLight as $y => $lightArray){
-						$chunk->getSubChunk($y)->setBlockLightArray($lightArray);
-					}
-					foreach($skyLight as $y => $lightArray){
-						$chunk->getSubChunk($y)->setBlockSkyLightArray($lightArray);
-					}
-					$chunk->setLightPopulated(true);
-					$this->markTickingChunkForRecheck($chunkX, $chunkZ);
-				}
-			));
-		}
-	}
+    $chunk->setLightPopulated(null);
+    $this->markTickingChunkForRecheck($chunkX, $chunkZ);
+
+    $this->workerPool->submitTask(new LightPopulationTask(
+        $chunk,
+        function(array $blockLight, array $skyLight, array $heightMap) use ($chunkX, $chunkZ): void {
+            if (
+                $this->unloaded ||
+                ($chunk = $this->getChunk($chunkX, $chunkZ)) === null
+            ) {
+                return;
+            }
+
+            if ($chunk->isLightPopulated() !== null) {
+                return;
+            }
+
+            $chunk->setHeightMapArray($heightMap);
+
+            foreach ($blockLight as $y => $lightArray) {
+                $chunk->getSubChunk($y)?->setBlockLightArray($lightArray);
+            }
+
+            foreach ($skyLight as $y => $lightArray) {
+                $chunk->getSubChunk($y)?->setBlockSkyLightArray($lightArray);
+            }
+
+            $chunk->setLightPopulated(true);
+            $this->markTickingChunkForRecheck($chunkX, $chunkZ);
+        }
+    ));
+}
+
+
 
 	private function tickChunk(int $chunkX, int $chunkZ) : void{
 		$chunk = $this->getChunk($chunkX, $chunkZ);
