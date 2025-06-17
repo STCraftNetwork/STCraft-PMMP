@@ -60,6 +60,11 @@ class TaskScheduler {
         return $this->addTask($task, $delay, $period);
     }
 
+    public function getTasks(): array {
+        return $this->tasks->toArray();
+    }
+
+
     /**
      * Cancel all scheduled tasks.
      */
