@@ -9,12 +9,15 @@ use pocketmine\world\format\Chunk;
 use pocketmine\world\format\io\FastChunkSerializer;
 use pocketmine\world\SimpleChunkManager;
 use pocketmine\world\World;
-
+use function array_map;
 use function igbinary_serialize;
 use function igbinary_unserialize;
 
-class PopulationTask extends AsyncTask {
-    private const TLS_KEY_ON_COMPLETION = "onCompletion";
+/**
+ * @phpstan-type OnCompletion \Closure(Chunk $centerChunk, array<int, Chunk> $adjacentChunks) : void
+ */
+class PopulationTask extends AsyncTask{
+	private const TLS_KEY_ON_COMPLETION = "onCompletion";
 
     private ?string $centerChunk;
     private string $adjacentChunksData;
@@ -35,52 +38,69 @@ class PopulationTask extends AsyncTask {
         $this->storeLocal(self::TLS_KEY_ON_COMPLETION, $onCompletion);
     }
 
-    public function onRun(): void {
-        $context = ThreadLocalGeneratorContext::fetch($this->worldId)
-            ?? throw new AssumptionFailedError("Generator context not initialized");
+	public function onRun() : void{
+		$context = ThreadLocalGeneratorContext::fetch($this->worldId);
+		if($context === null){
+			throw new AssumptionFailedError("Generator context should have been initialized before any PopulationTask execution");
+		}
+		$generator = $context->getGenerator();
+		$manager = new SimpleChunkManager($context->getWorldMinY(), $context->getWorldMaxY());
 
-        $gen = $context->getGenerator();
-        $mgr = new SimpleChunkManager($context->getWorldMinY(), $context->getWorldMaxY());
+		$chunk = $this->chunk !== null ? FastChunkSerializer::deserializeTerrain($this->chunk) : null;
 
-        $center = $this->centerChunk !== null ? FastChunkSerializer::deserializeTerrain($this->centerChunk) : null;
-        $adjacent = igbinary_unserialize($this->adjacentChunksData);
-        $adjChunks = [];
+		/**
+		 * @var string[] $serialChunks
+		 * @phpstan-var array<int, string|null> $serialChunks
+		 */
+		$serialChunks = igbinary_unserialize($this->adjacentChunks);
+		$chunks = array_map(
+			function(?string $serialized) : ?Chunk{
+				if($serialized === null){
+					return null;
+				}
+				$chunk = FastChunkSerializer::deserializeTerrain($serialized);
+				$chunk->clearTerrainDirtyFlags(); //this allows us to avoid sending existing chunks back to the main thread if they haven't changed during generation
+				return $chunk;
+			},
+			$serialChunks
+		);
 
-        foreach ($adjacent as $hash => $data) {
-            $adjChunks[$hash] = $data !== null
-                ? FastChunkSerializer::deserializeTerrain($data)->clearTerrainDirtyFlags()
-                : null;
-        }
+		self::setOrGenerateChunk($manager, $generator, $this->chunkX, $this->chunkZ, $chunk);
 
-        self::setOrGenerate($mgr, $gen, $this->chunkX, $this->chunkZ, $center);
+		$resultChunks = []; //this is just to keep phpstan's type inference happy
+		foreach($chunks as $relativeChunkHash => $c){
+			World::getXZ($relativeChunkHash, $relativeX, $relativeZ);
+			$resultChunks[$relativeChunkHash] = self::setOrGenerateChunk($manager, $generator, $this->chunkX + $relativeX, $this->chunkZ + $relativeZ, $c);
+		}
+		$chunks = $resultChunks;
 
-        foreach ($adjChunks as $hash => $chunkObj) {
-            [$dx, $dz] = World::getXZ($hash);
-            $adjChunks[$hash] = self::setOrGenerate($mgr, $gen, $this->chunkX + $dx, $this->chunkZ + $dz, $chunkObj);
-        }
+		$generator->populateChunk($manager, $this->chunkX, $this->chunkZ);
+		$chunk = $manager->getChunk($this->chunkX, $this->chunkZ);
+		if($chunk === null){
+			throw new AssumptionFailedError("We just generated this chunk, so it must exist");
+		}
+		$chunk->setPopulated();
 
-        $gen->populateChunk($mgr, $this->chunkX, $this->chunkZ);
+		$this->chunk = FastChunkSerializer::serializeTerrain($chunk);
 
-        $popChunk = $mgr->getChunk($this->chunkX, $this->chunkZ)
-            ?? throw new AssumptionFailedError("Generated chunk missing");
-        $popChunk->setPopulated();
+		$serialChunks = [];
+		foreach($chunks as $relativeChunkHash => $c){
+			$serialChunks[$relativeChunkHash] = $c->isTerrainDirty() ? FastChunkSerializer::serializeTerrain($c) : null;
+		}
+		$this->adjacentChunks = igbinary_serialize($serialChunks) ?? throw new AssumptionFailedError("igbinary_serialize() returned null");
+	}
 
-        $this->centerChunk = FastChunkSerializer::serializeTerrain($popChunk);
-        $this->adjacentChunksData = igbinary_serialize(array_map(
-            fn(Chunk $c) => $c->isTerrainDirty() ? FastChunkSerializer::serializeTerrain($c) : null,
-            $adjChunks
-        ));
-    }
-
-    private static function setOrGenerate(SimpleChunkManager $mgr, $gen, int $x, int $z, ?Chunk $chunk): Chunk {
-        $mgr->setChunk($x, $z, $chunk ?? new Chunk([], false));
-        if ($chunk === null) {
-            $gen->generateChunk($mgr, $x, $z);
-            return $mgr->getChunk($x, $z)
-                ?? throw new AssumptionFailedError("Generated chunk missing");
-        }
-        return $chunk;
-    }
+	private static function setOrGenerateChunk(SimpleChunkManager $manager, Generator $generator, int $chunkX, int $chunkZ, ?Chunk $chunk) : Chunk{
+		$manager->setChunk($chunkX, $chunkZ, $chunk ?? new Chunk([], false));
+		if($chunk === null){
+			$generator->generateChunk($manager, $chunkX, $chunkZ);
+			$chunk = $manager->getChunk($chunkX, $chunkZ);
+			if($chunk === null){
+				throw new AssumptionFailedError("We just set this chunk, so it must exist");
+			}
+		}
+		return $chunk;
+	}
 
     public function onCompletion(): void {
         $callback = $this->fetchLocal(self::TLS_KEY_ON_COMPLETION);
