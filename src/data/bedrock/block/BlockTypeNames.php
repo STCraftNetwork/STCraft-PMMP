@@ -1141,7 +1141,6 @@ final class BlockTypeNames{
 	public const STRIPPED_WARPED_HYPHAE = "minecraft:stripped_warped_hyphae";
 	public const STRIPPED_WARPED_STEM = "minecraft:stripped_warped_stem";
 	public const STRUCTURE_BLOCK = "minecraft:structure_block";
-	public const STRUCTURE_VOID = "minecraft:structure_void";
 	public const SUNFLOWER = "minecraft:sunflower";
 	public const SUSPICIOUS_GRAVEL = "minecraft:suspicious_gravel";
 	public const SUSPICIOUS_SAND = "minecraft:suspicious_sand";

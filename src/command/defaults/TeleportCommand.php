@@ -1,24 +1,5 @@
 <?php
 
-/*
- *
- *  ____            _        _   __  __ _                  __  __ ____
- * |  _ \ ___   ___| | _____| |_|  \/  (_)_ __   ___      |  \/  |  _ \
- * | |_) / _ \ / __| |/ / _ \ __| |\/| | | '_ \ / _ \_____| |\/| | |_) |
- * |  __/ (_) | (__|   <  __/ |_| |  | | | | | |  __/_____| |  | |  __/
- * |_|   \___/ \___|_|\_\___|\__|_|  |_|_|_| |_|\___|     |_|  |_|_|
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * @author PocketMine Team
- * @link http://www.pocketmine.net/
- *
- *
- */
-
 declare(strict_types=1);
 
 namespace pocketmine\command\defaults;
@@ -33,13 +14,15 @@ use pocketmine\player\Player;
 use pocketmine\utils\AssumptionFailedError;
 use pocketmine\utils\TextFormat;
 use pocketmine\world\World;
+use function array_map;
 use function array_shift;
 use function count;
+use function implode;
 use function round;
 
-class TeleportCommand extends VanillaCommand{
+class TeleportCommand extends VanillaCommand {
 
-	public function __construct(){
+	public function __construct() {
 		parent::__construct(
 			"tp",
 			KnownTranslationFactory::pocketmine_command_tp_description(),
@@ -52,24 +35,32 @@ class TeleportCommand extends VanillaCommand{
 		]);
 	}
 
-	private function findPlayer(CommandSender $sender, string $playerName) : ?Player{
-		$subject = $sender->getServer()->getPlayerByPrefix($playerName);
-		if($subject === null){
-			$sender->sendMessage(TextFormat::RED . "Can't find player " . $playerName);
+	private function findPlayer(CommandSender $sender, string $playerName): ?Player {
+		$matches = $sender->getServer()->getPlayersByPrefix($playerName);
+
+		if (count($matches) === 0) {
+			$sender->sendMessage(TextFormat::RED . "No players match '$playerName'.");
 			return null;
 		}
-		return $subject;
+
+		if (count($matches) > 1) {
+			$sender->sendMessage(TextFormat::YELLOW . "Multiple players match '$playerName': " .
+				implode(", ", array_map(fn(Player $p) => $p->getName(), $matches)));
+			return null;
+		}
+
+		return $matches[0];
 	}
 
-	public function execute(CommandSender $sender, string $commandLabel, array $args){
-		switch(count($args)){
+	public function execute(CommandSender $sender, string $commandLabel, array $args) {
+		switch (count($args)) {
 			case 1: // /tp targetPlayer
 			case 3: // /tp x y z
-			case 5: // /tp x y z yaw pitch - TODO: 5 args could be target x y z yaw :(
-				$subjectName = null; //self
+			case 5: // /tp x y z yaw pitch
+				$subjectName = null; // self
 				break;
 			case 2: // /tp player1 player2
-			case 4: // /tp player1 x y z - TODO: 4 args could be x y z yaw :(
+			case 4: // /tp player1 x y z
 			case 6: // /tp player1 x y z yaw pitch
 				$subjectName = array_shift($args);
 				break;
@@ -77,29 +68,38 @@ class TeleportCommand extends VanillaCommand{
 				throw new InvalidCommandSyntaxException();
 		}
 
-		$subject = $this->fetchPermittedPlayerTarget($sender, $subjectName, DefaultPermissionNames::COMMAND_TELEPORT_SELF, DefaultPermissionNames::COMMAND_TELEPORT_OTHER);
-		if($subject === null){
+		$subject = $this->fetchPermittedPlayerTarget(
+			$sender,
+			$subjectName,
+			DefaultPermissionNames::COMMAND_TELEPORT_SELF,
+			DefaultPermissionNames::COMMAND_TELEPORT_OTHER
+		);
+
+		if ($subject === null) {
 			return true;
 		}
 
-		switch(count($args)){
-			case 1:
+		switch (count($args)) {
+			case 1: {
 				$targetPlayer = $this->findPlayer($sender, $args[0]);
-				if($targetPlayer === null){
+				if ($targetPlayer === null) {
 					return true;
 				}
 
 				$subject->teleport($targetPlayer->getLocation());
-				Command::broadcastCommandMessage($sender, KnownTranslationFactory::commands_tp_success($subject->getName(), $targetPlayer->getName()));
-
+				Command::broadcastCommandMessage(
+					$sender,
+					KnownTranslationFactory::commands_tp_success($subject->getName(), $targetPlayer->getName())
+				);
 				return true;
+			}
 			case 3:
-			case 5:
+			case 5: {
 				$base = $subject->getLocation();
-				if(count($args) === 5){
-					$yaw = (float) $args[3];
-					$pitch = (float) $args[4];
-				}else{
+				if (count($args) === 5) {
+					$yaw = (float)$args[3];
+					$pitch = (float)$args[4];
+				} else {
 					$yaw = $base->yaw;
 					$pitch = $base->pitch;
 				}
@@ -112,11 +112,12 @@ class TeleportCommand extends VanillaCommand{
 				$subject->teleport($targetLocation);
 				Command::broadcastCommandMessage($sender, KnownTranslationFactory::commands_tp_success_coordinates(
 					$subject->getName(),
-					(string) round($targetLocation->x, 2),
-					(string) round($targetLocation->y, 2),
-					(string) round($targetLocation->z, 2)
+					(string)round($targetLocation->x, 2),
+					(string)round($targetLocation->y, 2),
+					(string)round($targetLocation->z, 2)
 				));
 				return true;
+			}
 			default:
 				throw new AssumptionFailedError("This branch should be unreachable (for now)");
 		}

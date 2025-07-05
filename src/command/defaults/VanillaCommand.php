@@ -32,46 +32,65 @@ use pocketmine\utils\TextFormat;
 use function is_numeric;
 use function substr;
 
-abstract class VanillaCommand extends Command{
+abstract class VanillaCommand extends Command
+{
 	public const MAX_COORD = 30000000;
 	public const MIN_COORD = -30000000;
 
-	protected function fetchPermittedPlayerTarget(CommandSender $sender, ?string $target, string $selfPermission, string $otherPermission) : ?Player{
-		if($target !== null){
-			$player = $sender->getServer()->getPlayerByPrefix($target);
-		}elseif($sender instanceof Player){
+	protected function fetchPermittedPlayerTarget(
+		CommandSender $sender,
+		?string $target,
+		string $selfPermission,
+		string $otherPermission
+	): ?Player {
+		if ($target !== null) {
+			$matches = $sender->getServer()->getPlayersByPrefix($target);
+
+			if (count($matches) === 0) {
+				$sender->sendMessage(KnownTranslationFactory::commands_generic_player_notFound()->prefix(TextFormat::RED));
+				return null;
+			}
+
+			if (count($matches) > 1) {
+				$sender->sendMessage(TextFormat::YELLOW . "Multiple players match '$target': " .
+					implode(", ", array_map(fn(Player $p) => $p->getName(), $matches)));
+				return null;
+			}
+
+			$player = $matches[0];
+		} elseif ($sender instanceof Player) {
 			$player = $sender;
-		}else{
+		} else {
 			throw new InvalidCommandSyntaxException();
 		}
 
-		if($player === null){
-			$sender->sendMessage(KnownTranslationFactory::commands_generic_player_notFound()->prefix(TextFormat::RED));
-			return null;
-		}
-		if(
+		if (
 			($player === $sender && $this->testPermission($sender, $selfPermission)) ||
 			($player !== $sender && $this->testPermission($sender, $otherPermission))
-		){
+		) {
 			return $player;
 		}
+
 		return null;
 	}
 
-	protected function getInteger(CommandSender $sender, string $value, int $min = self::MIN_COORD, int $max = self::MAX_COORD) : int{
+
+	protected function getInteger(CommandSender $sender, string $value, int $min = self::MIN_COORD, int $max = self::MAX_COORD): int
+	{
 		$i = (int) $value;
 
-		if($i < $min){
+		if ($i < $min) {
 			$i = $min;
-		}elseif($i > $max){
+		} elseif ($i > $max) {
 			$i = $max;
 		}
 
 		return $i;
 	}
 
-	protected function getRelativeDouble(float $original, CommandSender $sender, string $input, float $min = self::MIN_COORD, float $max = self::MAX_COORD) : float{
-		if($input[0] === "~"){
+	protected function getRelativeDouble(float $original, CommandSender $sender, string $input, float $min = self::MIN_COORD, float $max = self::MAX_COORD): float
+	{
+		if ($input[0] === "~") {
 			$value = $this->getDouble($sender, substr($input, 1));
 
 			return $original + $value;
@@ -80,29 +99,31 @@ abstract class VanillaCommand extends Command{
 		return $this->getDouble($sender, $input, $min, $max);
 	}
 
-	protected function getDouble(CommandSender $sender, string $value, float $min = self::MIN_COORD, float $max = self::MAX_COORD) : float{
+	protected function getDouble(CommandSender $sender, string $value, float $min = self::MIN_COORD, float $max = self::MAX_COORD): float
+	{
 		$i = (double) $value;
 
-		if($i < $min){
+		if ($i < $min) {
 			$i = $min;
-		}elseif($i > $max){
+		} elseif ($i > $max) {
 			$i = $max;
 		}
 
 		return $i;
 	}
 
-	protected function getBoundedInt(CommandSender $sender, string $input, int $min, int $max) : ?int{
-		if(!is_numeric($input)){
+	protected function getBoundedInt(CommandSender $sender, string $input, int $min, int $max): ?int
+	{
+		if (!is_numeric($input)) {
 			throw new InvalidCommandSyntaxException();
 		}
 
 		$v = (int) $input;
-		if($v > $max){
+		if ($v > $max) {
 			$sender->sendMessage(KnownTranslationFactory::commands_generic_num_tooBig($input, (string) $max)->prefix(TextFormat::RED));
 			return null;
 		}
-		if($v < $min){
+		if ($v < $min) {
 			$sender->sendMessage(KnownTranslationFactory::commands_generic_num_tooSmall($input, (string) $min)->prefix(TextFormat::RED));
 			return null;
 		}

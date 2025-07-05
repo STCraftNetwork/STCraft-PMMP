@@ -1,24 +1,5 @@
 <?php
 
-/*
- *
- *  ____            _        _   __  __ _                  __  __ ____
- * |  _ \ ___   ___| | _____| |_|  \/  (_)_ __   ___      |  \/  |  _ \
- * | |_) / _ \ / __| |/ / _ \ __| |\/| | | '_ \ / _ \_____| |\/| | |_) |
- * |  __/ (_) | (__|   <  __/ |_| |  | | | | | |  __/_____| |  | |  __/
- * |_|   \___/ \___|_|\_\___|\__|_|  |_|_|_| |_|\___|     |_|  |_|_|
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * @author PocketMine Team
- * @link http://www.pocketmine.net/
- *
- *
- */
-
 declare(strict_types=1);
 
 namespace pocketmine\command\defaults;
@@ -29,6 +10,7 @@ use pocketmine\command\utils\InvalidCommandSyntaxException;
 use pocketmine\lang\KnownTranslationFactory;
 use pocketmine\permission\DefaultPermissionNames;
 use pocketmine\player\Player;
+use function array_map;
 use function array_shift;
 use function count;
 use function implode;
@@ -53,21 +35,30 @@ class BanIpCommand extends VanillaCommand{
 		$value = array_shift($args);
 		$reason = implode(" ", $args);
 
+		$server = $sender->getServer();
+
 		if(inet_pton($value) !== false){
 			$this->processIPBan($value, $sender, $reason);
-
 			Command::broadcastCommandMessage($sender, KnownTranslationFactory::commands_banip_success($value));
 		}else{
-			if(($player = $sender->getServer()->getPlayerByPrefix($value)) instanceof Player){
-				$ip = $player->getNetworkSession()->getIp();
-				$this->processIPBan($ip, $sender, $reason);
+			$matches = $server->getPlayersByPrefix($value);
 
-				Command::broadcastCommandMessage($sender, KnownTranslationFactory::commands_banip_success_players($ip, $player->getName()));
-			}else{
+			if(count($matches) === 0){
 				$sender->sendMessage(KnownTranslationFactory::commands_banip_invalid());
-
 				return false;
 			}
+
+			if(count($matches) > 1){
+				$names = implode(", ", array_map(fn(Player $p) => $p->getName(), $matches));
+				$sender->sendMessage("§eMultiple players match '$value': §f$names");
+				return false;
+			}
+
+			$player = $matches[0];
+			$ip = $player->getNetworkSession()->getIp();
+			$this->processIPBan($ip, $sender, $reason);
+
+			Command::broadcastCommandMessage($sender, KnownTranslationFactory::commands_banip_success_players($ip, $player->getName()));
 		}
 
 		return true;
