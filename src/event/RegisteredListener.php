@@ -25,46 +25,84 @@ namespace pocketmine\event;
 
 use pocketmine\plugin\Plugin;
 use pocketmine\timings\TimingsHandler;
-use function in_array;
+use Closure;
+use InvalidArgumentException;
 
-class RegisteredListener{
+class RegisteredListener
+{
+	public readonly Plugin $plugin;
+	public readonly int $priority;
+	public readonly bool $handleCancelled;
+	public readonly TimingsHandler $timings;
+
+	private ?Closure $handlerClosure = null;
+	private ?string $handlerClass = null;
+	private ?string $handlerMethod = null;
+
+	/**
+	 * @param Closure|string[] $handler Either a closure or a static callable [ClassName::class, 'method']
+	 */
 	public function __construct(
-		private \Closure $handler,
-		private int $priority,
-		private Plugin $plugin,
-		private bool $handleCancelled,
-		private TimingsHandler $timings
-	){
-		if(!in_array($priority, EventPriority::ALL, true)){
-			throw new \InvalidArgumentException("Invalid priority number $priority");
+		Closure|array $handler,
+		int $priority,
+		Plugin $plugin,
+		bool $handleCancelled,
+		TimingsHandler $timings
+	) {
+		if ($priority > EventPriority::MONITOR || $priority < EventPriority::LOWEST) {
+			throw new InvalidArgumentException("Invalid priority number $priority");
+		}
+
+
+		$this->plugin = $plugin;
+		$this->priority = $priority;
+		$this->handleCancelled = $handleCancelled;
+		$this->timings = $timings;
+
+		if ($handler instanceof Closure) {
+			$this->handlerClosure = $handler;
+		} elseif (is_array($handler) && count($handler) === 2) {
+			[$this->handlerClass, $this->handlerMethod] = $handler;
+		} else {
+			throw new InvalidArgumentException("Handler must be a Closure or [ClassName::class, 'method']");
 		}
 	}
 
-	public function getHandler() : \Closure{
-		return $this->handler;
+	public function getHandler(): Closure|array
+	{
+		return $this->handlerClosure ?? [$this->handlerClass, $this->handlerMethod];
 	}
 
-	public function getPlugin() : Plugin{
+	public function getPlugin(): Plugin
+	{
 		return $this->plugin;
 	}
 
-	public function getPriority() : int{
+	public function getPriority(): int
+	{
 		return $this->priority;
 	}
 
-	public function callEvent(Event $event) : void{
-		if($event instanceof Cancellable && $event->isCancelled() && !$this->isHandlingCancelled()){
-			return;
-		}
-		$this->timings->startTiming();
-		try{
-			($this->handler)($event);
-		}finally{
-			$this->timings->stopTiming();
-		}
+	public function isHandlingCancelled(): bool
+	{
+		return $this->handleCancelled;
 	}
 
-	public function isHandlingCancelled() : bool{
-		return $this->handleCancelled;
+	public function callEvent(Event $event): void
+	{
+		if ($event instanceof Cancellable && !$this->handleCancelled && $event->isCancelled()) {
+			return;
+		}
+
+		$this->timings->startTiming();
+		try {
+			if ($this->handlerClosure !== null) {
+				($this->handlerClosure)($event);
+			} else {
+				$this->handlerClass::{$this->handlerMethod}($event);
+			}
+		} finally {
+			$this->timings->stopTiming();
+		}
 	}
 }

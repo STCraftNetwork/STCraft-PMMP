@@ -21,60 +21,64 @@
 
 declare(strict_types=1);
 
-/**
- * Event related classes
- */
 namespace pocketmine\event;
 
 use pocketmine\timings\Timings;
-use function count;
-use function get_class;
+use RuntimeException;
 
-abstract class Event{
+/**
+ * Base class for all events.
+ */
+abstract class Event {
 	private const MAX_EVENT_CALL_DEPTH = 50;
 
 	private static int $eventCallDepth = 1;
 
+	/** @var string|null Cached event name */
 	protected ?string $eventName = null;
 
-	final public function getEventName() : string{
-		return $this->eventName ?? get_class($this);
+	/**
+	 * Returns the name of the event class (cached).
+	 */
+	final public function getEventName() : string {
+		return $this->eventName ??= static::class;
 	}
 
 	/**
-	 * Calls event handlers registered for this event.
+	 * Calls all registered handlers for this event.
 	 *
-	 * @throws \RuntimeException if event call recursion reaches the max depth limit
+	 * @throws RuntimeException if recursive depth is too high.
 	 */
-	public function call() : void{
-		if(self::$eventCallDepth >= self::MAX_EVENT_CALL_DEPTH){
-			//this exception will be caught by the parent event call if all else fails
-			throw new \RuntimeException("Recursive event call detected (reached max depth of " . self::MAX_EVENT_CALL_DEPTH . " calls)");
+	public function call() : void {
+		if (self::$eventCallDepth >= self::MAX_EVENT_CALL_DEPTH) {
+			throw new RuntimeException(
+				"Recursive event call detected: reached max depth of " . self::MAX_EVENT_CALL_DEPTH
+			);
+		}
+
+		$handlers = HandlerListManager::global()->getHandlersFor(static::class);
+		if ($handlers === []) {
+			return;
 		}
 
 		$timings = Timings::getEventTimings($this);
 		$timings->startTiming();
 
-		$handlers = HandlerListManager::global()->getHandlersFor(static::class);
-
-		++self::$eventCallDepth;
-		try{
-			foreach($handlers as $registration){
-				$registration->callEvent($this);
+		self::$eventCallDepth++;
+		try {
+			foreach ($handlers as $listener) {
+				$listener->callEvent($this);
 			}
-		}finally{
-			--self::$eventCallDepth;
+		} finally {
+			self::$eventCallDepth--;
 			$timings->stopTiming();
 		}
 	}
 
 	/**
-	 * Returns whether the current class context has any registered global handlers.
-	 * This can be used in hot code paths to avoid unnecessary event object creation.
-	 *
-	 * Usage: SomeEventClass::hasHandlers()
+	 * Fast check to avoid allocating new events if there are no handlers.
 	 */
-	public static function hasHandlers() : bool{
-		return count(HandlerListManager::global()->getHandlersFor(static::class)) > 0;
+	public static function hasHandlers() : bool {
+		return HandlerListManager::global()->hasHandlersFor(static::class);
 	}
 }

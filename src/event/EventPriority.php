@@ -35,67 +35,52 @@ use function mb_strtoupper;
  *
  * WARNING: If these values are changed, handler sorting in HandlerList::getListenerList() may need to be updated.
  */
-final class EventPriority{
+final class EventPriority {
 
-	private function __construct(){
-		//NOOP
-	}
+    private function __construct() {}
 
-	public const ALL = [
-		self::LOWEST,
-		self::LOW,
-		self::NORMAL,
-		self::HIGH,
-		self::HIGHEST,
-		self::MONITOR
-	];
+    public const ALL = [
+        self::MONITOR,
+        self::HIGHEST,
+        self::HIGH,
+        self::NORMAL,
+        self::LOW,
+        self::LOWEST,
+    ];
 
-	/**
-	 * Event call is of very low importance and should be ran first, to allow
-	 * other plugins to further customise the outcome
-	 */
-	public const LOWEST = 5;
-	/**
-	 * Event call is of low importance
-	 */
-	public const LOW = 4;
-	/**
-	 * Event call is neither important or unimportant, and may be ran normally.
-	 * This is the default priority.
-	 */
-	public const NORMAL = 3;
-	/**
-	 * Event call is of high importance
-	 */
-	public const HIGH = 2;
-	/**
-	 * Event call is critical and must have the final say in what happens
-	 * to the event
-	 */
-	public const HIGHEST = 1;
-	/**
-	 * Event is listened to purely for monitoring the outcome of an event.
-	 *
-	 * No modifications to the event should be made under this priority
-	 */
-	public const MONITOR = 0;
+    /** Event listened to purely for monitoring, runs last, should NOT modify event */
+    public const MONITOR = 5;
 
-	/**
-	 * @throws \InvalidArgumentException
-	 */
-	public static function fromString(string $name) : int{
-		$value = [
-			"LOWEST" => self::LOWEST,
-			"LOW" => self::LOW,
-			"NORMAL" => self::NORMAL,
-			"HIGH" => self::HIGH,
-			"HIGHEST" => self::HIGHEST,
-			"MONITOR" => self::MONITOR
-		][mb_strtoupper($name)] ?? null;
-		if($value !== null){
-			return $value;
-		}
+    /** Event with critical importance, runs just before MONITOR */
+    public const HIGHEST = 4;
 
-		throw new \InvalidArgumentException("Unable to resolve priority \"$name\"");
-	}
+    /** Event of high importance */
+    public const HIGH = 3;
+
+    /** Default event priority */
+    public const NORMAL = 2;
+
+    /** Event of low importance */
+    public const LOW = 1;
+
+    /** Event of very low importance, runs first */
+    public const LOWEST = 0;
+
+    /**
+     * @throws \InvalidArgumentException
+     */
+    public static function fromString(string $name) : int {
+        $value = [
+            "MONITOR" => self::MONITOR,
+            "HIGHEST" => self::HIGHEST,
+            "HIGH" => self::HIGH,
+            "NORMAL" => self::NORMAL,
+            "LOW" => self::LOW,
+            "LOWEST" => self::LOWEST,
+        ][mb_strtoupper($name)] ?? null;
+        if ($value !== null) {
+            return $value;
+        }
+        throw new \InvalidArgumentException("Unable to resolve priority \"$name\"");
+    }
 }

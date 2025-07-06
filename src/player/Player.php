@@ -117,6 +117,7 @@ use pocketmine\network\mcpe\protocol\types\entity\EntityMetadataCollection;
 use pocketmine\network\mcpe\protocol\types\entity\EntityMetadataFlags;
 use pocketmine\network\mcpe\protocol\types\entity\EntityMetadataProperties;
 use pocketmine\network\mcpe\protocol\types\entity\PlayerMetadataFlags;
+use pocketmine\network\PingManager;
 use pocketmine\permission\DefaultPermissionNames;
 use pocketmine\permission\DefaultPermissions;
 use pocketmine\permission\PermissibleBase;
@@ -1498,6 +1499,7 @@ class Player extends Human implements CommandSender, ChunkListener, IPlayer{
 		$this->messageCounter = 2;
 
 		$this->lastUpdate = $currentTick;
+		PingManager::updatePing($this);
 
 		if($this->justCreated){
 			$this->onFirstUpdate($currentTick);

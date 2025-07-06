@@ -25,7 +25,7 @@ namespace pocketmine\event;
 
 use pocketmine\plugin\Plugin;
 use function array_merge;
-use function krsort;
+use function ksort;
 use function spl_object_id;
 use const SORT_NUMERIC;
 
@@ -44,7 +44,7 @@ class HandlerList{
 	 */
 	public function __construct(
 		private string $class,
-		private ?HandlerList $parentList,
+		private ?HandlerList $parentList = null,
 		private RegisteredListenerCache $handlerCache = new RegisteredListenerCache()
 	){
 		for($list = $this; $list !== null; $list = $list->parentList){
@@ -53,13 +53,21 @@ class HandlerList{
 	}
 
 	/**
-	 * @throws \Exception
+	 * @throws \InvalidArgumentException
 	 */
 	public function register(RegisteredListener $listener) : void{
-		if(isset($this->handlerSlots[$listener->getPriority()][spl_object_id($listener)])){
-			throw new \InvalidArgumentException("This listener is already registered to priority {$listener->getPriority()} of event {$this->class}");
+		$priority = $listener->getPriority();
+		if(!isset($this->handlerSlots[$priority])){
+			$this->handlerSlots[$priority] = [];
 		}
-		$this->handlerSlots[$listener->getPriority()][spl_object_id($listener)] = $listener;
+
+		$id = spl_object_id($listener);
+		if(isset($this->handlerSlots[$priority][$id])){
+			throw new \InvalidArgumentException("This listener is already registered to priority $priority of event {$this->class}");
+		}
+
+		// Append listener preserving insertion order per priority
+		$this->handlerSlots[$priority][$id] = $listener;
 		$this->invalidateAffectedCaches();
 	}
 
@@ -76,11 +84,11 @@ class HandlerList{
 	public function unregister(RegisteredListener|Plugin|Listener $object) : void{
 		if($object instanceof Plugin || $object instanceof Listener){
 			foreach($this->handlerSlots as $priority => $list){
-				foreach($list as $hash => $listener){
+				foreach($list as $id => $listener){
 					if(($object instanceof Plugin && $listener->getPlugin() === $object)
-						|| ($object instanceof Listener && (new \ReflectionFunction($listener->getHandler()))->getClosureThis() === $object) //this doesn't even need to be a listener :D
+						|| ($object instanceof Listener && (new \ReflectionFunction($listener->getHandler()))->getClosureThis() === $object)
 					){
-						unset($this->handlerSlots[$priority][$hash]);
+						unset($this->handlerSlots[$priority][$id]);
 					}
 				}
 			}
@@ -132,13 +140,15 @@ class HandlerList{
 		$listenersByPriority = [];
 		foreach($handlerLists as $currentList){
 			foreach($currentList->handlerSlots as $priority => $listeners){
-				$listenersByPriority[$priority] = array_merge($listenersByPriority[$priority] ?? [], $listeners);
+				if(!isset($listenersByPriority[$priority])){
+					$listenersByPriority[$priority] = [];
+				}
+				$listenersByPriority[$priority] = array_merge($listenersByPriority[$priority], $listeners);
 			}
 		}
 
-		//TODO: why on earth do the priorities have higher values for lower priority?
-		krsort($listenersByPriority, SORT_NUMERIC);
+		ksort($listenersByPriority, SORT_NUMERIC);
 
-		return $this->handlerCache->list = array_merge(...$listenersByPriority);
+		return $this->handlerCache->list = array_merge(...array_values($listenersByPriority));
 	}
 }
