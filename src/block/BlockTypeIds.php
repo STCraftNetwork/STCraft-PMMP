@@ -33,9 +33,11 @@ namespace pocketmine\block;
  * WARNING: These are NOT a replacement for Minecraft legacy IDs. Do **NOT** hardcode their values, or store them in
  * configs or databases. They will change without warning.
  */
-final class BlockTypeIds{
+final class BlockTypeIds
+{
 
-	private function __construct(){
+	private function __construct()
+	{
 		//NOOP
 	}
 
@@ -795,7 +797,33 @@ final class BlockTypeIds{
 	/**
 	 * Returns a new runtime block type ID, e.g. for use by a custom block.
 	 */
-	public static function newId() : int{
+	public static function newId(): int
+	{
 		return self::$nextDynamicId++;
 	}
+
+	public static function getSignTypeIds(): array
+	{
+		return [
+			self::ACACIA_SIGN,
+			self::ACACIA_WALL_SIGN,
+			self::BIRCH_SIGN,
+			self::BIRCH_WALL_SIGN,
+			self::CRIMSON_SIGN,
+			self::CRIMSON_WALL_SIGN,
+			self::DARK_OAK_SIGN,
+			self::DARK_OAK_WALL_SIGN,
+			self::JUNGLE_SIGN,
+			self::JUNGLE_WALL_SIGN,
+			self::MANGROVE_SIGN,
+			self::MANGROVE_WALL_SIGN,
+			self::OAK_SIGN,
+			self::OAK_WALL_SIGN,
+			self::SPRUCE_SIGN,
+			self::SPRUCE_WALL_SIGN,
+			self::WARPED_SIGN,
+			self::WARPED_WALL_SIGN,
+		];
+	}
+
 }

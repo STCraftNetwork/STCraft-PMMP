@@ -448,14 +448,14 @@ class Player extends Human implements CommandSender, ChunkListener, IPlayer{
 	}
 
 	/**
-	 * TODO: not sure this should be nullable
+	 * TODO: not sure this should be nullable. This doesn't make sense, siense you shouldn't beable to get the first played time if the player hasn't played before.
 	 */
 	public function getFirstPlayed() : ?int{
 		return $this->firstPlayed;
 	}
 
 	/**
-	 * TODO: not sure this should be nullable
+	 * TODO: not sure this should be nullable. this make little more sense, if the player has never left the server, this should return null.
 	 */
 	public function getLastPlayed() : ?int{
 		return $this->lastPlayed;
@@ -1110,7 +1110,7 @@ class Player extends Human implements CommandSender, ChunkListener, IPlayer{
 	/**
 	 * @return Position
 	 */
-	public function getSpawn(){
+	public function getSpawn(): Position|null{
 		if($this->hasValidCustomSpawn()){
 			return $this->spawnPosition;
 		}else{
@@ -2664,6 +2664,8 @@ class Player extends Human implements CommandSender, ChunkListener, IPlayer{
 		}
 		parent::broadcastSound($sound, $targets);
 	}
+
+
 
 	/**
 	 * TODO: remove this

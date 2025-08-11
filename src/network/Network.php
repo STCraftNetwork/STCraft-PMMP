@@ -36,7 +36,8 @@ use function spl_object_id;
 use function time;
 use const PHP_INT_MAX;
 
-class Network{
+class Network
+{
 	/** @var NetworkInterface[] */
 	private array $interfaces = [];
 
@@ -58,34 +59,42 @@ class Network{
 
 	public function __construct(
 		private \Logger $logger
-	){
+	) {
 		$this->sessionManager = new NetworkSessionManager();
 		$this->bandwidthTracker = new BidirectionalBandwidthStatsTracker(5);
 	}
 
-	public function getBandwidthTracker() : BidirectionalBandwidthStatsTracker{ return $this->bandwidthTracker; }
+	public function getBandwidthTracker(): BidirectionalBandwidthStatsTracker
+	{
+		return $this->bandwidthTracker;
+	}
 
 	/**
 	 * @return NetworkInterface[]
 	 */
-	public function getInterfaces() : array{
+	public function getInterfaces(): array
+	{
 		return $this->interfaces;
 	}
 
-	public function getSessionManager() : NetworkSessionManager{
+	public function getSessionManager(): NetworkSessionManager
+	{
 		return $this->sessionManager;
 	}
 
-	public function getConnectionCount() : int{
+	public function getConnectionCount(): int
+	{
 		return $this->sessionManager->getSessionCount();
 	}
 
-	public function getValidConnectionCount() : int{
+	public function getValidConnectionCount(): int
+	{
 		return $this->sessionManager->getValidSessionCount();
 	}
 
-	public function tick() : void{
-		foreach($this->interfaces as $interface){
+	public function tick(): void
+	{
+		foreach ($this->interfaces as $interface) {
 			$interface->tick();
 		}
 
@@ -95,19 +104,20 @@ class Network{
 	/**
 	 * @throws NetworkInterfaceStartException
 	 */
-	public function registerInterface(NetworkInterface $interface) : bool{
+	public function registerInterface(NetworkInterface $interface): bool
+	{
 		$ev = new NetworkInterfaceRegisterEvent($interface);
 		$ev->call();
-		if(!$ev->isCancelled()){
+		if (!$ev->isCancelled()) {
 			$interface->start();
 			$this->interfaces[$hash = spl_object_id($interface)] = $interface;
-			if($interface instanceof AdvancedNetworkInterface){
+			if ($interface instanceof AdvancedNetworkInterface) {
 				$this->advancedInterfaces[$hash] = $interface;
 				$interface->setNetwork($this);
-				foreach(Utils::stringifyKeys($this->bannedIps) as $ip => $until){
+				foreach (Utils::stringifyKeys($this->bannedIps) as $ip => $until) {
 					$interface->blockAddress($ip);
 				}
-				foreach($this->rawPacketHandlers as $handler){
+				foreach ($this->rawPacketHandlers as $handler) {
 					$interface->addRawPacketFilter($handler->getPattern());
 				}
 			}
@@ -120,8 +130,9 @@ class Network{
 	/**
 	 * @throws \InvalidArgumentException
 	 */
-	public function unregisterInterface(NetworkInterface $interface) : void{
-		if(!isset($this->interfaces[$hash = spl_object_id($interface)])){
+	public function unregisterInterface(NetworkInterface $interface): void
+	{
+		if (!isset($this->interfaces[$hash = spl_object_id($interface)])) {
 			throw new \InvalidArgumentException("Interface " . get_class($interface) . " is not registered on this network");
 		}
 		(new NetworkInterfaceUnregisterEvent($interface))->call();
@@ -132,25 +143,29 @@ class Network{
 	/**
 	 * Sets the server name shown on each interface Query
 	 */
-	public function setName(string $name) : void{
+	public function setName(string $name): void
+	{
 		$this->name = $name;
-		foreach($this->interfaces as $interface){
+		foreach ($this->interfaces as $interface) {
 			$interface->setName($this->name);
 		}
 	}
 
-	public function getName() : string{
+	public function getName(): string
+	{
 		return $this->name;
 	}
 
-	public function updateName() : void{
-		foreach($this->interfaces as $interface){
+	public function updateName(): void
+	{
+		foreach ($this->interfaces as $interface) {
 			$interface->setName($this->name);
 		}
 	}
 
-	public function sendPacket(string $address, int $port, string $payload) : void{
-		foreach($this->advancedInterfaces as $interface){
+	public function sendPacket(string $address, int $port, string $payload): void
+	{
+		foreach ($this->advancedInterfaces as $interface) {
 			$interface->sendRawPacket($address, $port, $payload);
 		}
 	}
@@ -158,16 +173,18 @@ class Network{
 	/**
 	 * Blocks an IP address from the main interface. Setting timeout to -1 will block it forever
 	 */
-	public function blockAddress(string $address, int $timeout = 300) : void{
+	public function blockAddress(string $address, int $timeout = 300): void
+	{
 		$this->bannedIps[$address] = $timeout > 0 ? time() + $timeout : PHP_INT_MAX;
-		foreach($this->advancedInterfaces as $interface){
+		foreach ($this->advancedInterfaces as $interface) {
 			$interface->blockAddress($address, $timeout);
 		}
 	}
 
-	public function unblockAddress(string $address) : void{
+	public function unblockAddress(string $address): void
+	{
 		unset($this->bannedIps[$address]);
-		foreach($this->advancedInterfaces as $interface){
+		foreach ($this->advancedInterfaces as $interface) {
 			$interface->unblockAddress($address);
 		}
 	}
@@ -175,11 +192,12 @@ class Network{
 	/**
 	 * Registers a raw packet handler on the network.
 	 */
-	public function registerRawPacketHandler(RawPacketHandler $handler) : void{
+	public function registerRawPacketHandler(RawPacketHandler $handler): void
+	{
 		$this->rawPacketHandlers[spl_object_id($handler)] = $handler;
 
 		$regex = $handler->getPattern();
-		foreach($this->advancedInterfaces as $interface){
+		foreach ($this->advancedInterfaces as $interface) {
 			$interface->addRawPacketFilter($regex);
 		}
 	}
@@ -187,21 +205,23 @@ class Network{
 	/**
 	 * Unregisters a previously-registered raw packet handler.
 	 */
-	public function unregisterRawPacketHandler(RawPacketHandler $handler) : void{
+	public function unregisterRawPacketHandler(RawPacketHandler $handler): void
+	{
 		unset($this->rawPacketHandlers[spl_object_id($handler)]);
 	}
 
-	public function processRawPacket(AdvancedNetworkInterface $interface, string $address, int $port, string $packet) : void{
-		if(isset($this->bannedIps[$address]) && time() < $this->bannedIps[$address]){
+	public function processRawPacket(AdvancedNetworkInterface $interface, string $address, int $port, string $packet): void
+	{
+		if (isset($this->bannedIps[$address]) && time() < $this->bannedIps[$address]) {
 			$this->logger->debug("Dropped raw packet from banned address $address $port");
 			return;
 		}
 		$handled = false;
-		foreach($this->rawPacketHandlers as $handler){
-			if(preg_match($handler->getPattern(), $packet) === 1){
-				try{
+		foreach ($this->rawPacketHandlers as $handler) {
+			if (preg_match($handler->getPattern(), $packet) === 1) {
+				try {
 					$handled = $handler->handle($interface, $address, $port, $packet);
-				}catch(PacketHandlingException $e){
+				} catch (PacketHandlingException $e) {
 					$handled = true;
 					$this->logger->error("Bad raw packet from /$address:$port: " . $e->getMessage());
 					$this->blockAddress($address, 600);
@@ -209,7 +229,7 @@ class Network{
 				}
 			}
 		}
-		if(!$handled){
+		if (!$handled) {
 			$this->logger->debug("Unhandled raw packet from /$address:$port: " . base64_encode($packet));
 		}
 	}

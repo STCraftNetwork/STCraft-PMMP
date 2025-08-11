@@ -958,16 +958,11 @@ class World implements ChunkManager
 	protected function actuallyDoTick(int $currentTick): void
 	{
 		if (!$this->stopTime) {
-			//this simulates an overflow, as would happen in any language which doesn't do stupid things to var types
-			if ($this->time === PHP_INT_MAX) {
-				$this->time = PHP_INT_MIN;
-			} else {
-				$this->time++;
-			}
+			$this->time = ($this->time === PHP_INT_MAX) ? PHP_INT_MIN : $this->time + 1;
 		}
 
-		$this->sunAnglePercentage = $this->computeSunAnglePercentage(); //Sun angle depends on the current time
-		$this->skyLightReduction = $this->computeSkyLightReduction(); //Sky light reduction depends on the sun angle
+		$this->sunAnglePercentage = $this->computeSunAnglePercentage();
+		$this->skyLightReduction = $this->computeSkyLightReduction();
 
 		if (++$this->sendTimeTicker === 200) {
 			$this->sendTime();
@@ -975,30 +970,34 @@ class World implements ChunkManager
 		}
 
 		$this->unloadChunks();
+
 		if (++$this->providerGarbageCollectionTicker >= 6000) {
 			$this->provider->doGarbageCollection();
 			$this->providerGarbageCollectionTicker = 0;
 		}
 
-		$this->timings->scheduledBlockUpdates->startTiming();
-		//Delayed updates
-		while ($this->scheduledBlockUpdateQueue->count() > 0 && $this->scheduledBlockUpdateQueue->current()["priority"] <= $currentTick) {
+		$scheduledQueue = $this->scheduledBlockUpdateQueue;
+		$scheduledIndex = &$this->scheduledBlockUpdateQueueIndex;
+		$timingsScheduled = $this->timings->scheduledBlockUpdates;
+		$timingsScheduled->startTiming();
+		while ($scheduledQueue->count() > 0 && $scheduledQueue->current()["priority"] <= $currentTick) {
 			/** @var Vector3 $vec */
-			$vec = $this->scheduledBlockUpdateQueue->extract()["data"];
-			unset($this->scheduledBlockUpdateQueueIndex[World::blockHash($vec->x, $vec->y, $vec->z)]);
-			if (!$this->isInLoadedTerrain($vec)) {
-				continue;
+			$vec = $scheduledQueue->extract()["data"];
+			unset($scheduledIndex[World::blockHash($vec->x, $vec->y, $vec->z)]);
+			if ($this->isInLoadedTerrain($vec)) {
+				$this->getBlock($vec)->onScheduledUpdate();
 			}
-			$block = $this->getBlock($vec);
-			$block->onScheduledUpdate();
 		}
-		$this->timings->scheduledBlockUpdates->stopTiming();
+		$timingsScheduled->stopTiming();
 
-		$this->timings->neighbourBlockUpdates->startTiming();
-		//Normal updates
-		while ($this->neighbourBlockUpdateQueue->count() > 0) {
-			$index = $this->neighbourBlockUpdateQueue->dequeue();
-			unset($this->neighbourBlockUpdateQueueIndex[$index]);
+		$neighbourQueue = $this->neighbourBlockUpdateQueue;
+		$neighbourIndex = &$this->neighbourBlockUpdateQueueIndex;
+		$timingsNeighbour = $this->timings->neighbourBlockUpdates;
+		$timingsNeighbour->startTiming();
+		while ($neighbourQueue->count() > 0) {
+			$index = $neighbourQueue->dequeue();
+			unset($neighbourIndex[$index]);
+
 			World::getBlockXYZ($index, $x, $y, $z);
 			if (!$this->isChunkLoaded($x >> Chunk::COORD_BIT_SIZE, $z >> Chunk::COORD_BIT_SIZE)) {
 				continue;
@@ -1013,25 +1012,27 @@ class World implements ChunkManager
 					continue;
 				}
 			}
+
 			foreach ($this->getNearbyEntities(AxisAlignedBB::one()->offset($x, $y, $z)) as $entity) {
 				$entity->onNearbyBlockChange();
 			}
 			$block->onNearbyBlockChange();
 		}
+		$timingsNeighbour->stopTiming();
 
-		$this->timings->neighbourBlockUpdates->stopTiming();
+		$timingsEntity = $this->timings->entityTick;
+		$timingsEntity->startTiming();
 
-		$this->timings->entityTick->startTiming();
-		//Update entities that need update
-		foreach ($this->updateEntities as $id => $entity) {
+		$entities = &$this->updateEntities;
+		foreach ($entities as $id => $entity) {
 			if ($entity->isClosed() || $entity->isFlaggedForDespawn() || !$entity->onUpdate($currentTick)) {
-				unset($this->updateEntities[$id]);
-			}
-			if ($entity->isFlaggedForDespawn()) {
-				$entity->close();
+				unset($entities[$id]);
+				if ($entity->isFlaggedForDespawn()) {
+					$entity->close();
+				}
 			}
 		}
-		$this->timings->entityTick->stopTiming();
+		$timingsEntity->stopTiming();
 
 		$this->timings->randomChunkUpdates->startTiming();
 		$this->tickChunks();
@@ -1039,48 +1040,51 @@ class World implements ChunkManager
 
 		$this->executeQueuedLightUpdates();
 
-		if (count($this->changedBlocks) > 0) {
-			if (count($this->players) > 0) {
-				foreach ($this->changedBlocks as $index => $blocks) {
-					if (count($blocks) === 0) { //blocks can be set normally and then later re-set with direct send
-						continue;
+		if (!empty($this->changedBlocks) && !empty($this->players)) {
+			$playersCount = count($this->players);
+			foreach ($this->changedBlocks as $index => $blocks) {
+				if (empty($blocks)) {
+					continue;
+				}
+
+				World::getXZ($index, $chunkX, $chunkZ);
+				if (!$this->isChunkLoaded($chunkX, $chunkZ)) {
+					continue;
+				}
+
+				if (count($blocks) > 512) {
+					$chunk = $this->getChunk($chunkX, $chunkZ);
+					if ($chunk === null) {
+						throw new \RuntimeException("Chunk was expected to be loaded");
 					}
-					World::getXZ($index, $chunkX, $chunkZ);
-					if (!$this->isChunkLoaded($chunkX, $chunkZ)) {
-						//a previous chunk may have caused this one to be unloaded by a ChunkListener
-						continue;
+					foreach ($this->getChunkPlayers($chunkX, $chunkZ) as $player) {
+						$player->onChunkChanged($chunkX, $chunkZ, $chunk);
 					}
-					if (count($blocks) > 512) {
-						$chunk = $this->getChunk($chunkX, $chunkZ) ?? throw new AssumptionFailedError("We already checked that the chunk is loaded");
-						foreach ($this->getChunkPlayers($chunkX, $chunkZ) as $p) {
-							$p->onChunkChanged($chunkX, $chunkZ, $chunk);
-						}
-					} else {
-						foreach ($this->createBlockUpdatePackets($blocks) as $packet) {
-							$this->broadcastPacketToPlayersUsingChunk($chunkX, $chunkZ, $packet);
-						}
+				} else {
+					foreach ($this->createBlockUpdatePackets($blocks) as $packet) {
+						$this->broadcastPacketToPlayersUsingChunk($chunkX, $chunkZ, $packet);
 					}
 				}
 			}
 
 			$this->changedBlocks = [];
-
 		}
 
-		if ($this->sleepTicks > 0 && --$this->sleepTicks <= 0) {
+		if ($this->sleepTicks > 0 && --$this->sleepTicks === 0) {
 			$this->checkSleep();
 		}
 
 		foreach ($this->packetBuffersByChunk as $index => $entries) {
 			World::getXZ($index, $chunkX, $chunkZ);
 			$chunkPlayers = $this->getChunkPlayers($chunkX, $chunkZ);
-			if (count($chunkPlayers) > 0) {
+			if ($chunkPlayers !== []) {
 				NetworkBroadcastUtils::broadcastPackets($chunkPlayers, $entries);
 			}
 		}
 
 		$this->packetBuffersByChunk = [];
 	}
+
 
 	public function checkSleep(): void
 	{
@@ -1438,38 +1442,58 @@ class World implements ChunkManager
 	{
 		$chunk = $this->getChunk($chunkX, $chunkZ);
 		if ($chunk === null) {
-			//the chunk may have been unloaded during a previous chunk's update (e.g. during BlockGrowEvent)
 			return;
 		}
-		foreach ($this->getChunkEntities($chunkX, $chunkZ) as $entity) {
-			$entity->onRandomUpdate();
+
+		$entities = $this->getChunkEntities($chunkX, $chunkZ);
+		if ($entities !== []) {
+			foreach ($entities as $entity) {
+				$entity->onRandomUpdate();
+			}
 		}
 
 		$blockFactory = $this->blockStateRegistry;
-		foreach ($chunk->getSubChunks() as $Y => $subChunk) {
-			if (!$subChunk->isEmptyFast()) {
-				$k = 0;
-				for ($i = 0; $i < $this->tickedBlocksPerSubchunkPerTick; ++$i) {
-					if (($i % 5) === 0) {
-						//60 bits will be used by 5 blocks (12 bits each)
-						$k = mt_rand(0, (1 << 60) - 1);
-					}
-					$x = $k & SubChunk::COORD_MASK;
-					$y = ($k >> SubChunk::COORD_BIT_SIZE) & SubChunk::COORD_MASK;
-					$z = ($k >> (SubChunk::COORD_BIT_SIZE * 2)) & SubChunk::COORD_MASK;
-					$k >>= (SubChunk::COORD_BIT_SIZE * 3);
+		$edgeLength = Chunk::EDGE_LENGTH;
+		$bitSize = SubChunk::COORD_BIT_SIZE;
+		$coordMask = SubChunk::COORD_MASK;
+		$ticksPerSubChunk = $this->tickedBlocksPerSubchunkPerTick;
 
-					$state = $subChunk->getBlockStateId($x, $y, $z);
+		$randomTickBlocks = $this->randomTickBlocks;
 
-					if (isset($this->randomTickBlocks[$state])) {
-						$block = $blockFactory->fromStateId($state);
-						$block->position($this, $chunkX * Chunk::EDGE_LENGTH + $x, ($Y << SubChunk::COORD_BIT_SIZE) + $y, $chunkZ * Chunk::EDGE_LENGTH + $z);
-						$block->onRandomTick();
-					}
+		foreach ($chunk->getSubChunks() as $subChunkY => $subChunk) {
+			if ($subChunk->isEmptyFast()) {
+				continue;
+			}
+
+			$randomBits = 0;
+
+			for ($i = 0; $i < $ticksPerSubChunk; ++$i) {
+				if (($i % 5) === 0) {
+					$randomBits = mt_rand(0, (1 << 60) - 1);
 				}
+
+				$x = $randomBits & $coordMask;
+				$y = ($randomBits >> $bitSize) & $coordMask;
+				$z = ($randomBits >> ($bitSize * 2)) & $coordMask;
+
+				$randomBits >>= ($bitSize * 3);
+
+				$stateId = $subChunk->getBlockStateId($x, $y, $z);
+				if (!isset($randomTickBlocks[$stateId])) {
+					continue;
+				}
+
+				$worldX = ($chunkX << 4) + $x;
+				$worldY = ($subChunkY << $bitSize) + $y;
+				$worldZ = ($chunkZ << 4) + $z;
+
+				$block = $blockFactory->fromStateId($stateId);
+				$block->position($this, $worldX, $worldY, $worldZ);
+				$block->onRandomTick();
 			}
 		}
 	}
+
 
 	/**
 	 * @return mixed[]
@@ -1481,8 +1505,7 @@ class World implements ChunkManager
 
 	public function save(bool $force = false): bool
 	{
-
-		if (!$this->getAutoSave() && !$force) {
+		if (!$force && !$this->getAutoSave()) {
 			return false;
 		}
 
@@ -1491,33 +1514,64 @@ class World implements ChunkManager
 		$timings = $this->timings->syncDataSave;
 		$timings->startTiming();
 
-		$this->provider->getWorldData()->setTime($this->time);
+		$worldData = $this->provider->getWorldData();
+		$worldData->setTime($this->time);
+
 		$this->saveChunks();
-		$this->provider->getWorldData()->save();
+
+		$worldData->save();
 
 		$timings->stopTiming();
-
 		return true;
 	}
 
+
 	public function saveChunks(): void
 	{
+		if (empty($this->chunks)) {
+			return;
+		}
+
 		$this->timings->syncChunkSave->startTiming();
 		try {
 			foreach ($this->chunks as $chunkHash => $chunk) {
+				if (!$chunk->isTerrainDirty() && !$chunk->hasTileChanges()) {
+					continue;
+				}
+
 				self::getXZ($chunkHash, $chunkX, $chunkZ);
-				$this->provider->saveChunk($chunkX, $chunkZ, new ChunkData(
-					$chunk->getSubChunks(),
-					$chunk->isPopulated(),
-					array_map(fn(Entity $e) => $e->saveNBT(), array_values(array_filter($this->getChunkEntities($chunkX, $chunkZ), fn(Entity $e) => $e->canSaveWithChunk()))),
-					array_map(fn(Tile $t) => $t->saveNBT(), array_values($chunk->getTiles())),
-				), $chunk->getTerrainDirtyFlags());
+
+				$entities = [];
+				foreach ($this->getChunkEntities($chunkX, $chunkZ) as $entity) {
+					if ($entity->canSaveWithChunk()) {
+						$entities[] = $entity->saveNBT();
+					}
+				}
+
+				$tiles = [];
+				foreach ($chunk->getTiles() as $tile) {
+					$tiles[] = $tile->saveNBT();
+				}
+				$this->provider->saveChunk(
+					$chunkX,
+					$chunkZ,
+					new ChunkData(
+						$chunk->getSubChunks(),
+						$chunk->isPopulated(),
+						$entities,
+						$tiles
+					),
+					$chunk->getTerrainDirtyFlags()
+				);
+
 				$chunk->clearTerrainDirtyFlags();
+				$chunk->clearTileChanges();
 			}
 		} finally {
 			$this->timings->syncChunkSave->stopTiming();
 		}
 	}
+
 
 	/**
 	 * Schedules a block update to be executed after the specified number of ticks.
@@ -3011,6 +3065,53 @@ class World implements ChunkManager
 		}
 		$this->entityLastKnownPositions[$entity->getId()] = $newPosition->asVector3();
 	}
+
+
+	/**
+	 * Returns all connected player sessions within the given radius of the specified center.
+	 *
+	 * @param Vector3 $center The center position to check around.
+	 * @param float $radius The radius to check within.
+	 *
+	 * @return Player[] Array of players within the radius.
+	 */
+	public function getPlayersInRadius(Vector3 $center, float $radius): array
+	{
+		$radiusSquared = $radius * $radius;
+		$nearby = [];
+
+		$players = $this->getServer()->getOnlinePlayers();
+
+		foreach ($players as $player) {
+			if (!$player->isConnected()) {
+				continue;
+			}
+
+			$pos = $player->getPosition();
+			$dx = $pos->x - $center->x;
+			if ($dx > $radius || $dx < -$radius) {
+				continue;
+			}
+
+			$dy = $pos->y - $center->y;
+			if ($dy > $radius || $dy < -$radius) {
+				continue;
+			}
+
+			$dz = $pos->z - $center->z;
+			if ($dz > $radius || $dz < -$radius) {
+				continue;
+			}
+			$distanceSquared = ($dx * $dx) + ($dy * $dy) + ($dz * $dz);
+			if ($distanceSquared <= $radiusSquared) {
+				$nearby[] = $player;
+			}
+		}
+
+		return $nearby;
+	}
+
+
 
 	/**
 	 * @internal Tiles are now bound with blocks, and their creation is automatic. They should not be directly added.
